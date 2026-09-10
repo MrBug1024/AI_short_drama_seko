@@ -1,6 +1,6 @@
 """剧本解析与高级生成 API
 
-模仿 Seko 的「剧本解析能力全面优化」：
+剧本解析能力全面优化：
 - 支持旁白解说/剧情剧本/分镜表三种格式
 - 自动识别角色/道具/场景
 - 提取分镜+台词+音效+镜头时长
@@ -11,8 +11,20 @@ from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def _strip_code_fences(text: str) -> str:
+    """去除 AI 返回内容中的 ```json ... ``` 代码围栏（与 creation.py 同款）"""
+    s = (text or "").strip()
+    if s.startswith("```"):
+        first_nl = s.find("\n")
+        if first_nl != -1:
+            s = s[first_nl + 1:]
+        if s.rstrip().endswith("```"):
+            s = s.rstrip()[:-3]
+    return s.strip()
 
 from app.core.database import get_db
 from app.ai.gateway import ai_gateway
@@ -24,6 +36,8 @@ from app.models.prop import Prop
 from app.models.shot import Shot
 from app.models.canvas import CanvasNode
 from app.models.generation_task import GenerationTask
+from app.models.user import User
+from app.api.auth import get_current_user
 from app.services.creation import creation_service
 
 router = APIRouter()
@@ -68,10 +82,263 @@ class ParseScriptBody(BaseModel):
     format_hint: str = Field("auto", description="格式提示：auto/narration/drama/storyboard")
 
 
+class CreateProjectWithScriptBody(BaseModel):
+    """一步式创建项目 + 剧本 + AI 解析画布骨架
+
+    这是「开始创作」按钮的统一入口：
+    - 用户输入剧名 + 完整剧本文本
+    - 后端立即创建项目（草稿状态）→ 落库剧本（v1）→ AI 解析出角色/场景/分镜 → 建好画布节点
+    - 前端创建成功后直接跳转 /canvas/{id}
+    """
+    name: str = Field(..., min_length=1, max_length=200, description="项目/剧名")
+    script_text: str = Field(..., min_length=10, description="完整剧本文本")
+    description: str = Field("", description="项目简介")
+    art_style: str = Field("", description="美术风格")
+    format_hint: str = Field("auto", description="剧本格式提示：auto/narration/drama/storyboard")
+    skill_code: str = Field("drama_story", description="创作技能")
+
+
+@router.post("/projects/create-with-script", response_model=None)
+async def create_project_with_script(
+    body: CreateProjectWithScriptBody,
+    current: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """一步式：剧名 + 剧本 → 项目 + 剧本 v1 + AI 解析（角色/场景/分镜/画布）
+
+    与原 create_project + parse_script 两步走的区别：
+    - 单次请求、原子事务：成功则画布骨架已就绪
+    - 失败则项目一起回滚（不会留下空壳项目）
+    """
+    from app.models.canvas import CanvasNode, CanvasEdge
+    from app.models.shot import Shot as ShotModel
+
+    name = body.name.strip()
+    script_text = body.script_text.strip()
+    if not name or not script_text:
+        raise HTTPException(400, "剧名和剧本均不能为空")
+
+    # 1) 创建项目（草稿态）
+    project = Project(
+        name=name,
+        description=body.description,
+        art_style=body.art_style or "realistic",
+        prompt=script_text,
+        status="creating",
+        owner_id=current.id,
+    )
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    project_id = project.id
+
+    # 2) 创建主任务
+    task = GenerationTask(
+        project_id=project_id,
+        task_type="script_parse",
+        status="running",
+        progress=30,
+        phase="剧本解析",
+        prompt=script_text[:200],
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    # 3) AI 解析
+    user_prompt = f"剧本格式提示：{body.format_hint}\n\n剧本内容：\n{script_text}"
+    try:
+        result = await ai_gateway.chat(
+            messages=[
+                {"role": "system", "content": PARSE_SCRIPT_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            json_mode=True,
+            temperature=0.5,
+        )
+        data = json.loads(_strip_code_fences(result["content"]))
+    except Exception as e:
+        # 解析失败也要回滚项目（不留空壳）
+        project.status = "failed"
+        task.status = "failed"
+        task.error_msg = f"AI 解析失败：{e}"
+        await db.commit()
+        raise HTTPException(500, f"AI 解析失败：{e}")
+
+    # 4) 落库剧本 v1
+    script = Script(
+        project_id=project_id,
+        version=1,
+        title=data.get("title", name),
+        logline=data.get("logline", ""),
+        content=script_text,
+        meta=data,
+        source_task_id=str(task.id),
+    )
+    db.add(script)
+    await db.flush()
+
+    # 5) 角色 / 场景 / 道具 / 分镜
+    char_map = {}
+    for c in data.get("characters", []):
+        character = Character(
+            project_id=project_id,
+            name=c.get("name", ""),
+            role=c.get("role", ""),
+            appearance=c.get("appearance", ""),
+            outfit=c.get("outfit", ""),
+            personality=c.get("personality", ""),
+            backstory=c.get("backstory", ""),
+        )
+        db.add(character)
+        await db.flush()
+        char_map[c.get("name", "")] = character.id
+
+    scene_map = {}
+    for s in data.get("scenes", []):
+        scene = Scene(
+            project_id=project_id,
+            name=s.get("name", ""),
+            location=s.get("location", ""),
+            time_of_day=s.get("time", "day"),
+            description=s.get("description", ""),
+            visual_prompt=s.get("visual_prompt", s.get("description", "")),
+        )
+        db.add(scene)
+        await db.flush()
+        scene_map[s.get("name", "")] = scene.id
+
+    for p in data.get("props", []):
+        prop = Prop(
+            project_id=project_id,
+            name=p.get("name", ""),
+            category=p.get("category", ""),
+            description=p.get("description", ""),
+        )
+        db.add(prop)
+
+    for idx, sh in enumerate(data.get("shots", []), 1):
+        shot = Shot(
+            project_id=project_id,
+            shot_no=idx,
+            shot_code=sh.get("shot_code", f"SC{idx:02d}"),
+            description=sh.get("description", ""),
+            camera_movement=sh.get("camera", ""),
+            dialogue=sh.get("dialogue", ""),
+            narration=sh.get("narration", ""),
+            duration_sec=sh.get("duration_sec", 5),
+            visual_prompt=sh.get("description", ""),
+        )
+        db.add(shot)
+    await db.flush()
+
+    # 6) 自动构建画布节点（角色/场景/分镜三行）
+    from app.services.creation import creation_service
+
+    shot_list = (await db.execute(
+        select(ShotModel).where(ShotModel.project_id == project_id).order_by(ShotModel.shot_no)
+    )).scalars().all()
+
+    char_ids = list(char_map.values())
+    scene_ids = list(scene_map.values())
+
+    created_nodes: list[CanvasNode] = []
+
+    # 角色行
+    for i, cid in enumerate(char_ids):
+        node = CanvasNode(
+            project_id=project_id,
+            node_type="character",
+            ref_id=cid,
+            title="",
+            position_x=i * 240,
+            position_y=0,
+        )
+        db.add(node)
+        created_nodes.append(node)
+
+    # 场景行
+    for i, sid in enumerate(scene_ids):
+        node = CanvasNode(
+            project_id=project_id,
+            node_type="scene",
+            ref_id=sid,
+            title="",
+            position_x=i * 240,
+            position_y=240,
+        )
+        db.add(node)
+        created_nodes.append(node)
+
+    # 分镜行
+    for i, sh in enumerate(shot_list):
+        node = CanvasNode(
+            project_id=project_id,
+            node_type="shot",
+            ref_id=sh.id,
+            title=sh.shot_code or f"SC{i + 1:02d}",
+            position_x=i * 240,
+            position_y=480,
+        )
+        db.add(node)
+        created_nodes.append(node)
+    await db.flush()
+
+    # 7) 自动建引用连线：分镜 → 角色 / 场景
+    char_nodes = [n for n in created_nodes if n.node_type == "character"]
+    scene_nodes = [n for n in created_nodes if n.node_type == "scene"]
+    shot_nodes = [n for n in created_nodes if n.node_type == "shot"]
+
+    # 关系边：按出现顺序轮询分配场景
+    for i, sn in enumerate(shot_nodes):
+        shot = next((s for s in shot_list if s.id == sn.ref_id), None)
+        if not shot:
+            continue
+        # 场景连线：优先按 shot_no % len(scene_nodes) 轮询
+        if scene_nodes:
+            target_scene = scene_nodes[i % len(scene_nodes)]
+            db.add(CanvasEdge(
+                project_id=project_id,
+                source_id=target_scene.id,
+                target_id=sn.id,
+                edge_type="reference",
+            ))
+        # 角色连线：按出现顺序轮询
+        if char_nodes:
+            target_char = char_nodes[i % len(char_nodes)]
+            db.add(CanvasEdge(
+                project_id=project_id,
+                source_id=target_char.id,
+                target_id=sn.id,
+                edge_type="reference",
+            ))
+
+    project.status = "draft"
+    task.status = "success"
+    task.progress = 100
+    task.finished_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(project)
+
+    return {
+        "ok": True,
+        "project_id": project.id,
+        "script_id": script.id,
+        "script_version": 1,
+        "format": data.get("format", body.format_hint),
+        "shot_count": len(shot_list),
+        "character_count": len(char_map),
+        "scene_count": len(scene_map),
+        "canvas_node_count": len(created_nodes),
+        "task_id": task.id,
+    }
+
+
 @router.post("/projects/{project_id}/parse-script")
 async def parse_script(
     project_id: int,
     body: ParseScriptBody,
+    current: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """解析用户上传的剧本（旁白/剧情/分镜表三种格式）
@@ -84,6 +351,12 @@ async def parse_script(
     )).scalar_one_or_none()
     if not project:
         raise HTTPException(404, "项目不存在")
+    # 公开/无主项目自动接管为当前用户，避免历史项目一直 owner 为 NULL
+    if project.owner_id is None:
+        project.owner_id = current.id
+        await db.commit()
+    elif project.owner_id != current.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
 
     script_text = body.script_text
     format_hint = body.format_hint
@@ -119,18 +392,17 @@ async def parse_script(
         await db.commit()
         return {"ok": False, "error": str(e), "raw": result["content"][:500]}
 
-    # 写入数据库 - 单版本覆盖：删除旧脚本版本后再写入新版本
+    # 写入数据库 - 重要：剧本是一等公民，**追加新版本**而非覆盖
+    # 旧剧本版本永久保留（用于回滚 / 剧本版本对比），新解析结果作为 v+1
     from app.models.script import Script as ScriptModel
-    old_scripts = (await db.execute(
-        select(ScriptModel).where(ScriptModel.project_id == project_id)
-    )).scalars().all()
-    for old in old_scripts:
-        await db.delete(old)
-    await db.flush()
+    max_version = (await db.execute(
+        select(func.max(ScriptModel.version)).where(ScriptModel.project_id == project_id)
+    )).scalar() or 0
+    next_version = max_version + 1
 
     script = Script(
         project_id=project_id,
-        version=1,
+        version=next_version,
         title=data.get("title", project.name),
         logline=data.get("logline", ""),
         content=script_text,
@@ -138,6 +410,9 @@ async def parse_script(
         source_task_id=str(task.id),
     )
     db.add(script)
+    await db.flush()
+    await db.refresh(script)
+    script_id = script.id
 
     # 角色
     char_map = {}
@@ -220,7 +495,8 @@ async def parse_script(
     return {
         "ok": True,
         "task_id": task.id,
-        "script_id": script.id,
+        "script_id": script_id,
+        "script_version": next_version,
         "format": data.get("format", format_hint),
         "shot_count": shot_count,
         "character_count": char_count,
@@ -583,6 +859,198 @@ async def batch_generate_shot_videos(
 
     _asyncio.get_event_loop().create_task(_run_batch_videos_bg(project_id, task_ids))
     return {"ok": True, "total": len(task_ids), "task_ids": task_ids, "async": True}
+
+
+@router.post("/scripts/{script_id}/apply-to-canvas")
+async def apply_script_to_canvas(
+    script_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """把指定剧本版本（用户已编辑过的）重新解析为画布骨架
+
+    用途：用户在画布抽屉里改完剧本后，点「重新应用到画布」→ 后端按当前剧本 v 解析角色/场景/分镜/画布节点
+    注意：旧剧本版本仍然保留，不会被覆盖（这里是「应用」而不是「创建新版本」）
+    """
+    from app.models.canvas import CanvasNode, CanvasEdge
+
+    script = (await db.execute(
+        select(Script).where(Script.id == script_id)
+    )).scalar_one_or_none()
+    if not script:
+        raise HTTPException(404, "剧本不存在")
+
+    project_id = script.project_id
+    script_text = script.content
+
+    # 1) 调 AI 重新解析
+    task = GenerationTask(
+        project_id=project_id,
+        task_type="script_apply",
+        status="running",
+        progress=30,
+        phase="应用剧本到画布",
+        prompt=script_text[:200],
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    try:
+        result = await ai_gateway.chat(
+            messages=[
+                {"role": "system", "content": PARSE_SCRIPT_PROMPT},
+                {"role": "user", "content": f"剧本格式提示：auto\n\n剧本内容：\n{script_text}"},
+            ],
+            json_mode=True,
+            temperature=0.5,
+        )
+        data = json.loads(_strip_code_fences(result["content"]))
+    except Exception as e:
+        task.status = "failed"
+        task.error_msg = f"AI 解析失败：{e}"
+        await db.commit()
+        raise HTTPException(500, f"AI 解析失败：{e}")
+
+    # 2) 清空旧画布骨架与旧实体（保留剧本所有版本）
+    await db.execute(delete(CanvasEdge).where(CanvasEdge.project_id == project_id))
+    await db.execute(delete(CanvasNode).where(CanvasNode.project_id == project_id))
+    await db.execute(delete(Shot).where(Shot.project_id == project_id))
+    await db.execute(delete(Scene).where(Scene.project_id == project_id))
+    await db.execute(delete(Character).where(Character.project_id == project_id))
+    await db.execute(delete(Prop).where(Prop.project_id == project_id))
+    await db.flush()
+
+    # 3) 落库
+    char_map = {}
+    for c in data.get("characters", []):
+        character = Character(
+            project_id=project_id,
+            name=c.get("name", ""),
+            role=c.get("role", ""),
+            appearance=c.get("appearance", ""),
+            outfit=c.get("outfit", ""),
+        )
+        db.add(character)
+        await db.flush()
+        char_map[c.get("name", "")] = character.id
+
+    scene_map = {}
+    for s in data.get("scenes", []):
+        scene = Scene(
+            project_id=project_id,
+            name=s.get("name", ""),
+            location=s.get("location", ""),
+            time_of_day=s.get("time", "day"),
+            description=s.get("description", ""),
+            visual_prompt=s.get("visual_prompt", s.get("description", "")),
+        )
+        db.add(scene)
+        await db.flush()
+        scene_map[s.get("name", "")] = scene.id
+
+    for p in data.get("props", []):
+        prop = Prop(
+            project_id=project_id,
+            name=p.get("name", ""),
+            category=p.get("category", ""),
+        )
+        db.add(prop)
+
+    shot_list = []
+    for idx, sh in enumerate(data.get("shots", []), 1):
+        shot = Shot(
+            project_id=project_id,
+            shot_no=idx,
+            shot_code=sh.get("shot_code", f"SC{idx:02d}"),
+            description=sh.get("description", ""),
+            camera_movement=sh.get("camera", ""),
+            dialogue=sh.get("dialogue", ""),
+            narration=sh.get("narration", ""),
+            duration_sec=sh.get("duration_sec", 5),
+            visual_prompt=sh.get("description", ""),
+        )
+        db.add(shot)
+        shot_list.append(shot)
+    await db.flush()
+
+    # 4) 同步更新当前剧本版本的 meta 与 logline（不创建新版本）
+    script.meta = data
+    if data.get("logline"):
+        script.logline = data["logline"]
+
+    # 5) 建画布节点
+    created_nodes: list[CanvasNode] = []
+    for i, cid in enumerate(char_map.values()):
+        node = CanvasNode(
+            project_id=project_id,
+            node_type="character",
+            ref_id=cid,
+            title="",
+            position_x=i * 240,
+            position_y=0,
+        )
+        db.add(node)
+        created_nodes.append(node)
+
+    for i, sid in enumerate(scene_map.values()):
+        node = CanvasNode(
+            project_id=project_id,
+            node_type="scene",
+            ref_id=sid,
+            title="",
+            position_x=i * 240,
+            position_y=240,
+        )
+        db.add(node)
+        created_nodes.append(node)
+
+    for i, sh in enumerate(shot_list):
+        node = CanvasNode(
+            project_id=project_id,
+            node_type="shot",
+            ref_id=sh.id,
+            title=sh.shot_code or f"SC{i + 1:02d}",
+            position_x=i * 240,
+            position_y=480,
+        )
+        db.add(node)
+        created_nodes.append(node)
+    await db.flush()
+
+    char_nodes = [n for n in created_nodes if n.node_type == "character"]
+    scene_nodes = [n for n in created_nodes if n.node_type == "scene"]
+    shot_nodes = [n for n in created_nodes if n.node_type == "shot"]
+
+    for i, sn in enumerate(shot_nodes):
+        if scene_nodes:
+            db.add(CanvasEdge(
+                project_id=project_id,
+                source_id=scene_nodes[i % len(scene_nodes)].id,
+                target_id=sn.id,
+                edge_type="reference",
+            ))
+        if char_nodes:
+            db.add(CanvasEdge(
+                project_id=project_id,
+                source_id=char_nodes[i % len(char_nodes)].id,
+                target_id=sn.id,
+                edge_type="reference",
+            ))
+
+    task.status = "success"
+    task.progress = 100
+    task.finished_at = datetime.utcnow()
+    await db.commit()
+
+    return {
+        "ok": True,
+        "task_id": task.id,
+        "script_id": script.id,
+        "shot_count": len(shot_list),
+        "character_count": len(char_map),
+        "scene_count": len(scene_map),
+        "canvas_node_count": len(created_nodes),
+    }
 
 # ============== 脚本资源管理（剧本是一等公民，不再是临时资产） ==============
 

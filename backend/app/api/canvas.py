@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.canvas import CanvasNode, CanvasEdge
 from app.models.shot import Shot
+from app.models.character import Character
+from app.models.scene import Scene
 from app.schemas.task import (
     CanvasNodeCreate, CanvasNodeUpdate, CanvasNodeOut,
     CanvasEdgeCreate, CanvasEdgeOut, CanvasSnapshot,
@@ -24,20 +26,73 @@ async def get_canvas(project_id: int, db: AsyncSession = Depends(get_db)):
         select(CanvasEdge).where(CanvasEdge.project_id == project_id)
     )).scalars().all()
 
-    # 为分镜节点富化视频地址（前端据此显示"视频就绪/可预览"状态）
-    shot_ref_ids = [n.ref_id for n in nodes if n.node_type == "shot" and n.ref_id]
-    video_by_shot = {}
-    if shot_ref_ids:
-        shots = (await db.execute(
-            select(Shot).where(Shot.id.in_(shot_ref_ids))
-        )).scalars().all()
-        video_by_shot = {s.id: s.video_url for s in shots if s.video_url}
+    # 收集 ref_id → 实体的映射（角色 / 场景 / 分镜）
+    char_ids = [n.ref_id for n in nodes if n.node_type == "character" and n.ref_id]
+    scene_ids = [n.ref_id for n in nodes if n.node_type == "scene" and n.ref_id]
+    shot_ids = [n.ref_id for n in nodes if n.node_type == "shot" and n.ref_id]
+
+    name_by_char: dict[int, dict] = {}
+    if char_ids:
+        for c in (await db.execute(select(Character).where(Character.id.in_(char_ids)))).scalars().all():
+            name_by_char[c.id] = {"name": c.name or "", "alias": c.alias or ""}
+
+    name_by_scene: dict[int, dict] = {}
+    if scene_ids:
+        for s in (await db.execute(select(Scene).where(Scene.id.in_(scene_ids)))).scalars().all():
+            name_by_scene[s.id] = {"name": s.name or "", "location": s.location or ""}
+
+    shot_by_id: dict[int, Shot] = {}
+    video_by_shot: dict[int, str] = {}
+    if shot_ids:
+        shots = (await db.execute(select(Shot).where(Shot.id.in_(shot_ids)))).scalars().all()
+        for s in shots:
+            shot_by_id[s.id] = s
+            if s.video_url:
+                video_by_shot[s.id] = s.video_url
 
     out_nodes = []
     for n in nodes:
         item = CanvasNodeOut.model_validate(n)
+
+        # 角色节点：把名字/别名回填到 title；额外信息进 meta（前端可展示）
+        if n.node_type == "character" and n.ref_id in name_by_char:
+            info = name_by_char[n.ref_id]
+            if not item.title:
+                item.title = info["name"] or info["alias"] or "未命名角色"
+            item.meta = {
+                **(item.meta or {}),
+                "name": info["name"],
+                "alias": info["alias"],
+            }
+
+        # 场景节点：把场景名 + 地点回填
+        elif n.node_type == "scene" and n.ref_id in name_by_scene:
+            info = name_by_scene[n.ref_id]
+            if not item.title:
+                item.title = info["name"] or info["location"] or "未命名场景"
+            item.meta = {
+                **(item.meta or {}),
+                "name": info["name"],
+                "location": info["location"],
+            }
+
+        # 分镜节点：title 优先用 shot_code + 描述摘要；meta 携带完整描述便于卡片显示
+        elif n.node_type == "shot" and n.ref_id in shot_by_id:
+            sh = shot_by_id[n.ref_id]
+            extra_meta: dict = {
+                "shot_code": sh.shot_code or "",
+                "description": sh.description or "",
+                "composition": sh.composition or "",
+                "camera_movement": sh.camera_movement or "",
+            }
+            if not item.title:
+                item.title = sh.shot_code or f"SC{sh.shot_no:02d}"
+            item.meta = {**(item.meta or {}), **extra_meta}
+
+        # 视频 URL 富化（分镜）
         if n.node_type == "shot" and n.ref_id in video_by_shot:
             item.meta = {**(item.meta or {}), "video_url": video_by_shot[n.ref_id]}
+
         out_nodes.append(item)
 
     return CanvasSnapshot(

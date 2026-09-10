@@ -20,14 +20,19 @@ class Settings(BaseSettings):
     )
 
     # 应用基础
-    APP_NAME: str = "Seko AI 短视频创作平台"
+    APP_NAME: str = "LBP_M 短剧创作平台"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
     HOST: str = "127.0.0.1"
     PORT: int = 8000
 
     # 数据库
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/seko.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/lbp_m.db"
+
+    # JWT 鉴权（HS256）
+    JWT_SECRET: str = "lbp-m-dev-secret-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 天
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"

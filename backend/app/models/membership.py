@@ -1,4 +1,4 @@
-"""会员订阅/积分系统模型 - 类似 Seko 订阅计划"""
+"""会员订阅/积分系统模型"""
 from datetime import datetime
 from sqlalchemy import String, Text, DateTime, Integer, ForeignKey, func, JSON, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship

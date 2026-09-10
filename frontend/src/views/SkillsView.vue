@@ -1,7 +1,7 @@
 <template>
   <div class="px-6 py-8 max-w-6xl mx-auto">
     <div class="flex items-center justify-between mb-2">
-      <h1 class="seko-section-title !mb-0">技能社区</h1>
+      <h1 class="lbp-section-title !mb-0">技能社区</h1>
     </div>
     <p class="text-sm text-slate-500 mb-6">安装创作技能，让 AI 按你的流程自动策划、分镜、生成。</p>
 
@@ -20,7 +20,7 @@
 
     <!-- 技能卡片 -->
     <div v-if="filtered.length" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div v-for="s in filtered" :key="s.id" class="seko-card seko-card-hover p-5 flex flex-col">
+      <div v-for="s in filtered" :key="s.id" class="lbp-card lbp-card-hover p-5 flex flex-col">
         <div class="flex items-start gap-3">
           <div class="w-11 h-11 shrink-0 rounded-xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center text-brand-400 text-lg font-bold">
             {{ s.name.slice(0, 1) }}
@@ -28,7 +28,7 @@
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium text-slate-100 truncate">{{ s.name }}</span>
-              <span v-if="s.is_builtin" class="seko-tag shrink-0">官方</span>
+              <span v-if="s.is_builtin" class="lbp-tag shrink-0">官方</span>
             </div>
             <div class="text-xs text-slate-500 mt-0.5">{{ categoryLabel(s.category) }}</div>
           </div>

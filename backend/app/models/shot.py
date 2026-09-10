@@ -44,7 +44,7 @@ class Shot(Base):
     video_url: Mapped[str] = mapped_column(String(500), default="")
     audio_url: Mapped[str] = mapped_column(String(500), default="")
 
-    # SekoIDX 引用
+    # 角色一致性引用
     character_refs: Mapped[list] = mapped_column(JSON, default=list)
 
     status: Mapped[str] = mapped_column(String(32), default="pending")  # pending/imaging/videod/audioed/done/failed

@@ -50,8 +50,8 @@ async def init_db():
     """初始化数据库（创建所有表 + 轻量迁移）"""
     # 先 import 所有 model，让 Base 知道
     from app.models import (
-        project, episode, script, character, scene,
-        prop, shot, canvas, generation_task, ai_provider, skill,
+        user, project, episode, script, character, scene,
+        prop, shot, canvas, generation_task, ai_provider, skill, inspiration, membership,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -74,6 +74,9 @@ def _migrate_schema(sync_conn):
         "characters": {
             "backstory": "TEXT DEFAULT ''",
             "view_images": "JSON DEFAULT '{}'",
+        },
+        "projects": {
+            "owner_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
         },
     }
 

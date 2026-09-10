@@ -1,6 +1,6 @@
 """7 步创作流程核心服务
 
-对应 Seko 的 7 个 Agent 流程：
+对应 7 个 Agent 流程：
 1. Art Director   - 美术总监（视觉风格、色调、光影）
 2. Scriptwriter   - 编剧（剧本拆解）
 3. Character Designer - 角色设计
@@ -167,7 +167,8 @@ class CreationService:
         task: GenerationTask,
     ):
         """把 AI 生成的结构化数据落库（幂等：先清空旧实体，避免重复创作产生重复数据）"""
-        # 0. 清空旧实体与旧画布（连线 → 节点 → 分镜 → 场景 → 角色 → 道具 → 剧本）
+        # 0. 清空旧实体与旧画布（连线 → 节点 → 分镜 → 场景 → 角色 → 道具）
+        # 重要：剧本作为脚本保留，不再删除。AI 重新生成会写入新版本 v+1，旧版本可回滚。
         await db.execute(delete(CanvasEdge).where(CanvasEdge.project_id == project.id))
         await db.execute(delete(CanvasNode).where(CanvasNode.project_id == project.id))
         await db.execute(delete(Shot).where(Shot.project_id == project.id))
@@ -175,13 +176,17 @@ class CreationService:
         await db.execute(delete(CharacterRelation).where(CharacterRelation.project_id == project.id))
         await db.execute(delete(Character).where(Character.project_id == project.id))
         await db.execute(delete(Prop).where(Prop.project_id == project.id))
-        await db.execute(delete(Script).where(Script.project_id == project.id))
         await db.flush()
 
-        # 1. 剧本
+        # 1. 剧本 - 写入新版本（v+1），永不覆盖旧版本
+        from sqlalchemy import func as _func
+        max_version = (await db.execute(
+            select(_func.max(Script.version)).where(Script.project_id == project.id)
+        )).scalar() or 0
+        next_version = max_version + 1
         script = Script(
             project_id=project.id,
-            version=1,
+            version=next_version,
             title=project.name,
             logline=data.get("logline", ""),
             content=self._format_script_md(data),

@@ -169,6 +169,8 @@ export interface Skill {
   category: string
   installed: boolean
   is_builtin: boolean
+  is_official?: boolean
+  install_count?: number
   sort_order: number
   usage_count: number
 }
@@ -177,6 +179,7 @@ export interface Inspiration {
   id: number
   project_id: number
   title: string
+  author?: string
   description?: string
   cover_url?: string
   video_url?: string

@@ -14,7 +14,7 @@ def setup_logger():
         colorize=True,
     )
     logger.add(
-        "data/logs/seko_{time:YYYY-MM-DD}.log",
+        "data/logs/lbp_m_{time:YYYY-MM-DD}.log",
         level="INFO",
         rotation="10 MB",
         retention="7 days",

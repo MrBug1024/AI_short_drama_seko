@@ -1,6 +1,6 @@
 """技能注册表 - 内置技能模板
 
-参考 Seko 技能市场设计，每个技能是一组预设的 prompt + 节点配置 + 流程模板
+每个技能是一组预设的 prompt + 节点配置 + 流程模板
 """
 from typing import List, Dict, Any
 

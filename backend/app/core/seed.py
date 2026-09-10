@@ -1,10 +1,10 @@
-"""默认数据初始化 - 会员/模型/画风（模仿 Seko 数据）"""
+"""默认数据初始化 - 会员/模型/画风"""
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-# 4 级会员（模仿 Seko：免费/标准/高级/企业）
+# 4 级会员（免费/标准/高级/企业）
 DEFAULT_MEMBERSHIPS = [
     {
         "tier": "free",

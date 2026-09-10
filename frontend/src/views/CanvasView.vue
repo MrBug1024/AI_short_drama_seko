@@ -13,13 +13,13 @@
       <div class="flex-1" />
 
       <!-- 剧本优化 / 角色关系 -->
-      <button class="seko-btn-ghost !py-1.5 text-xs !rounded-full whitespace-nowrap shrink-0" @click="openScriptPanel">
+      <button class="lbp-btn-ghost !py-1.5 text-xs !rounded-full whitespace-nowrap shrink-0" @click="openScriptPanel">
         <el-icon :size="13"><Document /></el-icon>
         剧本 / 关系
       </button>
 
       <!-- AI 自动策划 -->
-      <button class="seko-btn-primary !py-1.5 text-xs whitespace-nowrap shrink-0" :disabled="planning" @click="aiPlan">
+      <button class="lbp-btn-primary !py-1.5 text-xs whitespace-nowrap shrink-0" :disabled="planning" @click="aiPlan">
         <el-icon v-if="planning" class="animate-spin" :size="13"><Loading /></el-icon>
         <el-icon v-else :size="13"><MagicStick /></el-icon>
         {{ planning ? 'AI 策划中...' : 'AI 自动策划' }}
@@ -27,7 +27,7 @@
 
       <!-- 批量操作 -->
       <el-dropdown trigger="click" @command="onBatchCommand">
-        <button class="seko-btn-ghost !py-1.5 text-xs !rounded-full whitespace-nowrap shrink-0">
+        <button class="lbp-btn-ghost !py-1.5 text-xs !rounded-full whitespace-nowrap shrink-0">
           <el-icon :size="13"><Grid /></el-icon>
           批量生成
           <el-icon :size="11"><ArrowDown /></el-icon>
@@ -42,7 +42,7 @@
       </el-dropdown>
 
       <!-- 自动布局 -->
-      <button class="seko-btn-ghost !py-1.5 text-xs !rounded-full whitespace-nowrap shrink-0" @click="autoLayout">
+      <button class="lbp-btn-ghost !py-1.5 text-xs !rounded-full whitespace-nowrap shrink-0" @click="autoLayout">
         <el-icon :size="13"><MagicStick /></el-icon>
         自动布局
       </button>
@@ -216,8 +216,45 @@
             </span>
           </div>
 
-          <!-- 标题 -->
-          <div class="px-2.5 py-2 pl-3 text-xs text-slate-200 line-clamp-1" :title="n.title">{{ n.title || nodeTypeLabel(n.node_type) }}</div>
+          <!-- 标题区：按节点类型展示不同字段 -->
+          <div class="px-2.5 py-2 pl-3 space-y-0.5">
+            <!-- 角色：名字 + 别名 -->
+            <template v-if="n.node_type === 'character'">
+              <div class="text-xs font-medium text-slate-100 line-clamp-1" :title="n.meta?.name || n.title">
+                {{ n.meta?.name || n.title || '未命名角色' }}
+              </div>
+              <div v-if="n.meta?.alias" class="text-[10px] text-slate-500 line-clamp-1" :title="n.meta.alias">
+                别名：{{ n.meta.alias }}
+              </div>
+            </template>
+
+            <!-- 场景：场景名 + 地点 -->
+            <template v-else-if="n.node_type === 'scene'">
+              <div class="text-xs font-medium text-slate-100 line-clamp-1" :title="n.meta?.name || n.title">
+                {{ n.meta?.name || n.title || '未命名场景' }}
+              </div>
+              <div v-if="n.meta?.location" class="text-[10px] text-slate-500 line-clamp-1" :title="n.meta.location">
+                📍 {{ n.meta.location }}
+              </div>
+            </template>
+
+            <!-- 分镜：编号 + 描述 -->
+            <template v-else-if="n.node_type === 'shot'">
+              <div class="text-xs font-medium text-slate-100 line-clamp-1" :title="n.meta?.shot_code || n.title">
+                {{ n.meta?.shot_code || n.title || '分镜' }}
+              </div>
+              <div v-if="n.meta?.description" class="text-[10px] text-slate-500 line-clamp-2" :title="n.meta.description">
+                {{ n.meta.description }}
+              </div>
+            </template>
+
+            <!-- 其它节点（剧本/分镜表/视频...）：沿用原 title -->
+            <template v-else>
+              <div class="text-xs text-slate-200 line-clamp-1" :title="n.title">
+                {{ n.title || nodeTypeLabel(n.node_type) }}
+              </div>
+            </template>
+          </div>
         </div>
       </div>
 
@@ -257,8 +294,8 @@
         </div>
       </div>
       <template #footer>
-        <button class="seko-btn-ghost !py-1.5 text-xs" @click="videoDialog.visible = false">取消</button>
-        <button class="seko-btn-primary !py-1.5 text-xs" :disabled="videoDialog.busy" @click="confirmVideoGen">
+        <button class="lbp-btn-ghost !py-1.5 text-xs" @click="videoDialog.visible = false">取消</button>
+        <button class="lbp-btn-primary !py-1.5 text-xs" :disabled="videoDialog.busy" @click="confirmVideoGen">
           {{ videoDialog.busy ? '生成中...' : '开始生成' }}
         </button>
       </template>
@@ -293,10 +330,10 @@
         <a
           :href="videoPreview.url"
           download
-          class="seko-btn-ghost !px-2 !py-1 text-[11px] shrink-0"
+          class="lbp-btn-ghost !px-2 !py-1 text-[11px] shrink-0"
           title="下载视频文件"
         >下载</a>
-        <button class="seko-btn-primary !px-2.5 !py-1 text-[11px] shrink-0" @click="toggleFullscreen">
+        <button class="lbp-btn-primary !px-2.5 !py-1 text-[11px] shrink-0" @click="toggleFullscreen">
           <el-icon :size="11"><FullScreen /></el-icon>
           {{ videoPreview.isFullscreen ? '退出全屏' : '全屏播放' }}
         </button>
@@ -310,7 +347,7 @@
       direction="rtl"
       size="440px"
       append-to-body
-      class="seko-design-drawer"
+      class="lbp-design-drawer"
     >
       <!-- 角色设计 -->
       <div v-if="designPanel.type === 'character' && designPanel.character" class="space-y-4">
@@ -318,7 +355,7 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-medium text-slate-300">角色设计稿（多视图）</span>
-            <button class="seko-btn-primary !py-1 text-[11px]" :disabled="designPanel.busy" @click="genDesignSheet">
+            <button class="lbp-btn-primary !py-1 text-[11px]" :disabled="designPanel.busy" @click="genDesignSheet">
               <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
               <el-icon v-else :size="11"><MagicStick /></el-icon>
               生成设计稿
@@ -363,7 +400,7 @@
           <el-input v-model="designPanel.character.personality" type="textarea" :rows="2" placeholder="性格" size="small" />
           <el-input v-model="designPanel.character.backstory" type="textarea" :rows="2" placeholder="背景故事" size="small" />
           <div class="flex gap-2">
-            <button class="seko-btn-ghost flex-1 !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveCharacter">保存设定</button>
+            <button class="lbp-btn-ghost flex-1 !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveCharacter">保存设定</button>
           </div>
         </div>
 
@@ -371,7 +408,7 @@
         <div class="space-y-2 pt-2 border-t border-ink-800">
           <div class="text-xs font-medium text-slate-300">AI 优化角色</div>
           <el-input v-model="designPanel.requirement" type="textarea" :rows="2" placeholder="例如：让她看起来更成熟一些，换成红色长裙" size="small" />
-          <button class="seko-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeEntity">
+          <button class="lbp-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeEntity">
             <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
             <el-icon v-else :size="11"><MagicStick /></el-icon>
             AI 优化并保存
@@ -384,7 +421,7 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-medium text-slate-300">场景概念图</span>
-            <button class="seko-btn-primary !py-1 text-[11px]" :disabled="designPanel.busy" @click="genSceneImage">
+            <button class="lbp-btn-primary !py-1 text-[11px]" :disabled="designPanel.busy" @click="genSceneImage">
               <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
               <el-icon v-else :size="11"><MagicStick /></el-icon>
               生成场景图
@@ -407,12 +444,12 @@
           </div>
           <el-input v-model="designPanel.scene.description" type="textarea" :rows="2" placeholder="场景描述" size="small" />
           <el-input v-model="designPanel.scene.visual_prompt" type="textarea" :rows="2" placeholder="视觉提示词（空间+物件+光线+色调）" size="small" />
-          <button class="seko-btn-ghost w-full !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveScene">保存设定</button>
+          <button class="lbp-btn-ghost w-full !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveScene">保存设定</button>
         </div>
         <div class="space-y-2 pt-2 border-t border-ink-800">
           <div class="text-xs font-medium text-slate-300">AI 优化场景</div>
           <el-input v-model="designPanel.requirement" type="textarea" :rows="2" placeholder="例如：改成雨夜，增加霓虹灯反光" size="small" />
-          <button class="seko-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeEntity">
+          <button class="lbp-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeEntity">
             <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
             <el-icon v-else :size="11"><MagicStick /></el-icon>
             AI 优化并保存
@@ -425,7 +462,7 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-medium text-slate-300">分镜图</span>
-            <button class="seko-btn-primary !py-1 text-[11px]" :disabled="designPanel.busy" @click="genShotImage">
+            <button class="lbp-btn-primary !py-1 text-[11px]" :disabled="designPanel.busy" @click="genShotImage">
               <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
               <el-icon v-else :size="11"><MagicStick /></el-icon>
               生成分镜图
@@ -442,7 +479,7 @@
             <span class="text-xs font-medium text-emerald-400 flex items-center gap-1">
               <el-icon :size="12"><VideoPlay /></el-icon> 生成的视频
             </span>
-            <button class="seko-btn-ghost !px-2 !py-0.5 text-[11px]" @click="openShotVideoPreview(designPanel.shot)">
+            <button class="lbp-btn-ghost !px-2 !py-0.5 text-[11px]" @click="openShotVideoPreview(designPanel.shot)">
               <el-icon :size="11"><FullScreen /></el-icon> 全屏预览
             </button>
           </div>
@@ -462,12 +499,12 @@
             <el-input v-model.number="designPanel.shot.duration_sec" placeholder="时长(秒)" size="small" type="number" />
           </div>
           <el-input v-model="designPanel.shot.dialogue" type="textarea" :rows="2" placeholder="台词" size="small" />
-          <button class="seko-btn-ghost w-full !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveShot">保存设定</button>
+          <button class="lbp-btn-ghost w-full !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveShot">保存设定</button>
         </div>
         <div class="space-y-2 pt-2 border-t border-ink-800">
           <div class="text-xs font-medium text-slate-300">AI 优化分镜</div>
           <el-input v-model="designPanel.requirement" type="textarea" :rows="2" placeholder="例如：加强紧张感，改成手持晃动镜头" size="small" />
-          <button class="seko-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeEntity">
+          <button class="lbp-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeEntity">
             <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
             <el-icon v-else :size="11"><MagicStick /></el-icon>
             AI 优化并保存
@@ -485,7 +522,8 @@
           </div>
           <div v-if="scriptVersions.loading" class="text-[11px] text-slate-500 py-2">加载中…</div>
           <div v-else-if="!scriptVersions.items.length" class="text-[11px] text-slate-600 py-3 text-center bg-ink-850 rounded-lg border border-ink-800">
-            尚未保存剧本。请先在首页输入灵感并完成创作。
+            <p>尚未保存剧本。</p>
+            <p class="mt-1.5 text-slate-500">请回「我的项目」点击「开始创作」填写剧本，剧本将作为项目核心资产持久保存。</p>
           </div>
           <div v-else class="space-y-2">
             <div v-for="sv in scriptVersions.items" :key="sv.id" class="bg-ink-850 rounded-lg border border-ink-800 overflow-hidden">
@@ -499,9 +537,33 @@
               <div v-if="sv.logline" class="px-3 py-2 text-[11px] text-slate-400 border-b border-ink-800">
                 <span class="text-slate-500">梗概：</span>{{ sv.logline }}
               </div>
-              <!-- Markdown 内容：可滚动查看 -->
-              <div class="px-3 py-2 max-h-64 overflow-y-auto">
-                <pre class="text-[11px] text-slate-300 whitespace-pre-wrap font-mono leading-relaxed m-0">{ sv.content }</pre>
+              <!-- 当前激活版本：可编辑；其他版本：只读 -->
+              <div v-if="editingScriptId === sv.id" class="px-3 py-2 border-b border-ink-800 space-y-2">
+                <el-input v-model="editingScript.title" placeholder="剧名" size="small" />
+                <el-input v-model="editingScript.logline" type="textarea" :rows="2" placeholder="一句话梗概" size="small" />
+                <el-input v-model="editingScript.content" type="textarea" :rows="8" placeholder="完整剧本（剧情剧本 / 旁白 / 分镜表均可）" size="small" resize="vertical" />
+                <div class="flex gap-2">
+                  <button class="lbp-btn-ghost flex-1 !py-1 text-[11px]" @click="cancelEditScript">取消</button>
+                  <button class="lbp-btn-primary flex-1 !py-1 text-[11px]" :disabled="scriptSaving" @click="saveEditScript(sv.id)">
+                    <el-icon v-if="scriptSaving" class="animate-spin" :size="11"><Loading /></el-icon>
+                    保存剧本
+                  </button>
+                </div>
+              </div>
+              <!-- 只读视图 -->
+              <div v-else class="px-3 py-2 max-h-64 overflow-y-auto">
+                <pre class="text-[11px] text-slate-300 whitespace-pre-wrap font-mono leading-relaxed m-0">{{ sv.content }}</pre>
+              </div>
+              <!-- 版本操作按钮 -->
+              <div class="flex items-center gap-2 px-3 py-2 bg-ink-800/30 border-t border-ink-800">
+                <button v-if="editingScriptId !== sv.id" class="text-[11px] text-brand-400 hover:underline" @click="startEditScript(sv)">
+                  编辑剧本
+                </button>
+                <button class="text-[11px] text-emerald-400 hover:underline" :disabled="applyingScriptId === sv.id" @click="applyScript(sv.id)">
+                  <el-icon v-if="applyingScriptId === sv.id" class="animate-spin" :size="11"><Loading /></el-icon>
+                  重新应用到画布
+                </button>
+                <span class="text-[10px] text-slate-600 ml-auto">应用于画布 → 重新解析角色/场景/分镜</span>
               </div>
             </div>
           </div>
@@ -509,12 +571,12 @@
 
         <div class="space-y-2 pt-3 border-t border-ink-800">
           <div class="text-xs font-medium text-slate-300">AI 优化整部剧本</div>
-          <div class="text-[11px] text-slate-500">按你的要求改写剧本（保留角色/场景/分镜结构，生成新版本并同步画布）</div>
+          <div class="text-[11px] text-slate-500">按你的要求改写剧本（生成新版本，旧版本永久保留，可回滚）</div>
           <el-input v-model="designPanel.requirement" type="textarea" :rows="4" placeholder="例如：把结局改成反转，女主其实是卧底；加强第 3-5 镜的冲突" size="small" />
-          <button class="seko-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeScript">
+          <button class="lbp-btn-primary w-full !py-1.5 text-xs" :disabled="designPanel.busy || !designPanel.requirement" @click="optimizeScript">
             <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
             <el-icon v-else :size="11"><MagicStick /></el-icon>
-            AI 优化剧本
+            AI 优化剧本（生成新版本 v+1）
           </button>
         </div>
 
@@ -522,7 +584,7 @@
         <div class="space-y-2 pt-3 border-t border-ink-800">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-slate-300">角色关系</span>
-            <button class="seko-btn-ghost !py-1 text-[11px]" :disabled="designPanel.busy" @click="autoRelations">
+            <button class="lbp-btn-ghost !py-1 text-[11px]" :disabled="designPanel.busy" @click="autoRelations">
               <el-icon :size="11"><MagicStick /></el-icon> AI 自动设计
             </button>
           </div>
@@ -547,7 +609,7 @@
             <el-select v-model="newRelation.to" placeholder="角色B" size="small" class="flex-1">
               <el-option v-for="c in charOptions" :key="c.id" :label="c.name" :value="c.id" />
             </el-select>
-            <button class="seko-btn-ghost !px-2 !py-1 text-xs shrink-0" :disabled="!newRelation.from || !newRelation.to" @click="addRelation">+</button>
+            <button class="lbp-btn-ghost !px-2 !py-1 text-xs shrink-0" :disabled="!newRelation.from || !newRelation.to" @click="addRelation">+</button>
           </div>
         </div>
       </div>
@@ -558,7 +620,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, ArrowDown, Loading, MagicStick, Grid, Minus, Plus, FullScreen,
   MoreFilled, VideoPlay, Connection, User, Place, Film, Document, Headset, Close,
@@ -673,16 +735,26 @@ const buildNodesFromEntities = async () => {
 // ============ AI 自动策划 ============
 const aiPlan = async () => {
   if (!project.value) return
-  const prompt = project.value.prompt
+  // 优先用「最新一版剧本的完整正文」作为 prompt（用户已经在画布里编辑过剧本的情况）
+  let prompt = ''
+  if (scriptVersions.items.length) {
+    prompt = scriptVersions.items[0].content || scriptVersions.items[0].raw_text || ''
+  }
+  if (!prompt) prompt = project.value.prompt || ''
   if (!prompt) {
-    ElMessage.warning('该项目没有创意描述，请先在首页输入灵感')
+    ElMessage.warning('该项目没有创意描述，也没有保存的剧本。请先在「剧本」抽屉里编辑剧本或回首页填写。')
     return
   }
   planning.value = true
   try {
-    await projectsApi.startCreation(projectId, { prompt })
+    await projectsApi.startCreation(projectId, {
+      prompt,
+      art_style: project.value.art_style || '',
+      skill_code: 'drama_story',
+    })
     ElMessage.success('AI 策划完成，正在生成画布节点')
     await loadAll()
+    await loadScriptVersions()
     fitView()
   } catch {
     ElMessage.error('AI 策划失败')
@@ -1470,6 +1542,68 @@ const optimizeScript = async () => {
     await loadScriptVersions()
   } catch { /* ignore */ } finally {
     designPanel.busy = false
+  }
+}
+
+// ============ 剧本版本编辑 ============
+// 用户编辑某个剧本版本 → 保存（仍保留旧版本，只是改这一版的文本）
+const editingScriptId = ref<number | null>(null)
+const editingScript = reactive<{ title: string; logline: string; content: string }>({
+  title: '', logline: '', content: '',
+})
+const scriptSaving = ref(false)
+
+const startEditScript = (sv: ScriptVersion) => {
+  editingScriptId.value = sv.id
+  editingScript.title = sv.title || ''
+  editingScript.logline = sv.logline || ''
+  editingScript.content = sv.content || ''
+}
+
+const cancelEditScript = () => {
+  editingScriptId.value = null
+}
+
+const saveEditScript = async (scriptId: number) => {
+  if (!editingScript.title.trim() || !editingScript.content.trim()) {
+    ElMessage.warning('剧名和剧本正文不能为空')
+    return
+  }
+  scriptSaving.value = true
+  try {
+    await scriptsApi.update(scriptId, {
+      title: editingScript.title.trim(),
+      logline: editingScript.logline.trim(),
+      content: editingScript.content,
+    })
+    ElMessage.success('剧本已保存（同一版本号内编辑，旧版本快照保留在系统）')
+    editingScriptId.value = null
+    await loadScriptVersions()
+  } catch { /* ignore */ } finally {
+    scriptSaving.value = false
+  }
+}
+
+// ============ 把指定剧本版本重新应用到画布 ============
+const applyingScriptId = ref<number | null>(null)
+const applyScript = async (scriptId: number) => {
+  try {
+    await ElMessageBox.confirm(
+      '将基于此剧本版本重新解析角色 / 场景 / 分镜并重建画布节点，当前画布实体将被覆盖（已生成的图片 / 视频不受影响，可重新批量生成）。',
+      '重新应用到画布',
+      { type: 'warning' },
+    )
+  } catch { return }
+  applyingScriptId.value = scriptId
+  try {
+    const res = await scriptsApi.applyToCanvas(scriptId)
+    ElMessage.success(
+      `已应用剧本到画布：${res.character_count} 角色 / ${res.scene_count} 场景 / ${res.shot_count} 分镜 / ${res.canvas_node_count} 画布节点`,
+    )
+    await loadAll()
+    fitView()
+  } catch { /* ignore */ } finally {
+    applyingScriptId.value = null
   }
 }
 

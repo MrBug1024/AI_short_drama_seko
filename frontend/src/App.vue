@@ -5,5 +5,5 @@
 </template>
 
 <script setup lang="ts">
-// Seko 复刻版：无全局预加载，页面按需请求数据
+// LBP_M 前端：无全局预加载，页面按需请求数据
 </script>

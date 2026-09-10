@@ -39,6 +39,7 @@ class ProjectOut(BaseModel):
     prompt: str
     created_at: datetime
     updated_at: datetime
+    owner_id: Optional[int] = None  # 归属用户（None = 公开/历史项目）
 
     # 统计
     episode_count: int = 0

@@ -1,4 +1,4 @@
-"""灵感广场作品模型 - 类似 Seko 灵感广场"""
+"""灵感广场作品模型"""
 from datetime import datetime
 from sqlalchemy import String, Text, DateTime, Integer, ForeignKey, func, JSON, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship

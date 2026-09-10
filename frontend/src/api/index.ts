@@ -1,6 +1,12 @@
 import axios, { type AxiosInstance } from 'axios'
 import { ElMessage } from 'element-plus'
 
+// token：与 authStore 同步（authStore 也管理 localStorage）
+const TOKEN_KEY = 'lbp_m_token'
+function getToken(): string {
+  return localStorage.getItem(TOKEN_KEY) || ''
+}
+
 // 统一 axios 客户端，baseURL 通过 vite proxy 转发到后端 8000
 const http: AxiosInstance = axios.create({
   baseURL: '/api/v1',
@@ -8,11 +14,43 @@ const http: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// 请求拦截：自动注入 Bearer Token
+http.interceptors.request.use((config) => {
+  const tk = getToken()
+  if (tk) {
+    config.headers = config.headers || {}
+    ;(config.headers as Record<string, string>)['Authorization'] = `Bearer ${tk}`
+  }
+  return config
+})
+
+// 响应拦截：401 时清空本地 token + 跳登录页（仅在「已登录」时跳转避免无限重定向）
+let _isRedirecting401 = false
 http.interceptors.response.use(
   (r) => r,
   (err) => {
-    const msg = err?.response?.data?.detail || err?.message || '请求失败'
-    ElMessage.error(msg)
+    const status = err?.response?.status
+    const detail = err?.response?.data?.detail
+    // 跳过 /auth/* 自身的错误（避免登录失败时跳转登录页造成循环）
+    const url: string = err?.config?.url || ''
+    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/me')
+
+    if (status === 401 && getToken() && !isAuthEndpoint && !_isRedirecting401) {
+      // token 失效：清空本地态
+      localStorage.removeItem(TOKEN_KEY)
+      _isRedirecting401 = true
+      ElMessage.warning('登录状态已过期，请重新登录')
+      // 用 window.location 强制刷新 router 状态
+      setTimeout(() => {
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
+        _isRedirecting401 = false
+      }, 100)
+    } else {
+      const msg = typeof detail === 'string' ? detail : (detail?.msg || err?.message || '请求失败')
+      ElMessage.error(msg)
+    }
     return Promise.reject(err)
   },
 )
@@ -46,9 +84,9 @@ export const projectsApi = {
     http.patch<Project>(`/projects/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/projects/${id}`).then((r) => r.data),
 
-  // 启动 7 步创作流程（后端参数为 query）
+  // 启动 7 步创作流程（走 JSON body，避免长 prompt 触发 431）
   startCreation: (id: number, params: { prompt?: string; art_style?: string; skill_code?: string }) =>
-    http.post<{ ok: boolean }>(`/projects/${id}/create`, null, { params }).then((r) => r.data),
+    http.post<{ ok: boolean }>(`/projects/${id}/create`, params || {}).then((r) => r.data),
   // 单步优化
   refine: (id: number, params: { step: string; user_prompt: string; target_type?: string; target_id?: number }) =>
     http.post<{ ok: boolean }>(`/projects/${id}/refine`, null, { params }).then((r) => r.data),
@@ -60,7 +98,30 @@ export const projectsApi = {
 
   // 剧本解析 / 多剧集拆分 / 批量生成
   parseScript: (id: number, params: { script_text: string; format_hint?: string }) =>
-    http.post<{ ok: boolean; shots_created?: number; script_id?: number }>(`/projects/${id}/parse-script`, params).then((r) => r.data),
+    http.post<{ ok: boolean; shots_created?: number; script_id?: number; script_version?: number }>(`/projects/${id}/parse-script`, params).then((r) => r.data),
+  /**
+   * 一步式创建项目 + 剧本 + AI 解析（角色/场景/分镜 + 画布骨架）
+   * 这是「开始创作」按钮的统一入口。body 体提交，规避 431 错误。
+   */
+  createWithScript: (data: {
+    name: string
+    script_text: string
+    description?: string
+    art_style?: string
+    format_hint?: string
+    skill_code?: string
+  }) =>
+    http.post<{
+      ok: boolean
+      project_id: number
+      script_id: number
+      script_version: number
+      shot_count: number
+      character_count: number
+      scene_count: number
+      canvas_node_count: number
+      task_id: number
+    }>('/projects/create-with-script', data).then((r) => r.data),
   multiEpisodeSplit: (id: number, params: { total_episodes?: number }) =>
     http.post<{ ok: boolean }>(`/projects/${id}/multi-episode-split`, null, { params }).then((r) => r.data),
   batchImages: (id: number, params?: { shot_ids?: number[]; image_model?: string }) =>
@@ -185,6 +246,9 @@ export const scriptsApi = {
   /** 编辑剧本（标题/梗概/完整内容），不改 meta */
   update: (scriptId: number, data: { title?: string; logline?: string; content?: string }) =>
     http.patch<{ ok: boolean; script_id: number; version: number }>(`/scripts/${scriptId}`, data).then((r) => r.data),
+  /** 把指定剧本版本重新应用到画布（重新解析角色/场景/分镜/画布节点） */
+  applyToCanvas: (scriptId: number) =>
+    http.post<{ ok: boolean; shot_count: number; character_count: number; scene_count: number; canvas_node_count: number }>(`/scripts/${scriptId}/apply-to-canvas`).then((r) => r.data),
 }
 
 // ============================================================
@@ -240,7 +304,7 @@ export const skillsApi = {
 }
 
 // ============================================================
-// 灵感广场（Seko TV）
+// 灵感广场（LBP_M TV）
 // ============================================================
 export const inspirationApi = {
   list: (params?: { category?: string; keyword?: string; tag?: string; featured?: boolean; limit?: number; offset?: number }) =>
@@ -286,6 +350,25 @@ export const artStylesApi = {
 
 export const dashboardApi = {
   stats: () => http.get<DashboardStats>('/dashboard/stats').then((r) => r.data),
+}
+
+// ============================================================
+// 用户认证（注册/登录/当前用户信息）
+// ============================================================
+import type { UserInfo } from '@/stores/auth'
+
+export interface TokenOut {
+  access_token: string
+  token_type: 'bearer'
+  user: UserInfo
+}
+
+export const authApi = {
+  register: (data: { email: string; password: string; display_name: string }) =>
+    http.post<TokenOut>('/auth/register', data).then((r) => r.data),
+  login: (data: { email: string; password: string }) =>
+    http.post<TokenOut>('/auth/login', data).then((r) => r.data),
+  me: () => http.get<UserInfo>('/auth/me').then((r) => r.data),
 }
 
 // ============================================================

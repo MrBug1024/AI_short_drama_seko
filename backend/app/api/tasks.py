@@ -320,7 +320,7 @@ async def lipsync(
     characters: str = "",  # 逗号分隔的角色名
     db: AsyncSession = Depends(get_db),
 ):
-    """SekoTalk：多角色口型同步"""
+    """多角色口型同步"""
     char_list = [c.strip() for c in characters.split(",") if c.strip()]
     task = GenerationTask(
         project_id=project_id,

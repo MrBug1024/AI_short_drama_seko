@@ -7,9 +7,8 @@
           短剧漫剧 / 输入你的灵感，<span class="text-gradient-brand">AI 会为你自动策划内容生成视频</span>
         </h1>
 
-        <!-- 创作输入卡片 -->
-        <div class="seko-card p-4 md:p-5">
-          <!-- 模式 Tab：短片工作室 | 创作Agent·无限画布 -->
+        <!-- 创作输入卡片：统一剧本入口（剧名 + 完整剧本 → 一步创建项目+落库+AI 解析画布） -->
+        <div class="lbp-card p-4 md:p-5">
           <div class="flex items-center gap-1 mb-3">
             <button
               v-for="t in modeTabs"
@@ -23,40 +22,48 @@
             </button>
           </div>
 
-          <!-- 灵感输入 -->
+          <!-- 剧名（必填，单行） -->
           <el-input
-            v-model="prompt"
-            type="textarea"
-            :rows="3"
-            resize="none"
-            placeholder="输入你的灵感，AI 会为你自动策划内容生成视频"
-            class="explore-input"
-            @keydown.enter.exact.prevent="handleCreate"
+            v-model="projectName"
+            placeholder="给你的短剧起个名字，如《出海复仇记》"
+            class="!mb-2"
+            maxlength="80"
+            show-word-limit
           />
-          <!-- 智能判定提示 -->
-          <div class="flex items-center justify-between mt-1.5 text-[11px]" :class="isFullScript ? 'text-brand-400' : 'text-slate-500'">
+
+          <!-- 剧本正文（必填，文本域；后端用 body 提交，规避 431） -->
+          <el-input
+            v-model="scriptText"
+            type="textarea"
+            :rows="5"
+            resize="none"
+            placeholder="粘贴或输入完整剧本（剧情剧本 / 旁白解说 / 分镜表均可）。AI 会自动识别角色、场景、分镜，并把它们落到无限画布上。"
+            class="explore-input"
+          />
+          <!-- 字数 + 状态提示 -->
+          <div class="flex items-center justify-between mt-1.5 text-[11px]" :class="scriptText.trim().length >= 10 ? 'text-brand-400' : 'text-slate-500'">
             <span>{{ hintText }}</span>
-            <span v-if="prompt.trim().length > 0">{{ prompt.trim().length }} 字</span>
+            <span v-if="scriptText.trim().length > 0">{{ scriptText.trim().length }} 字</span>
           </div>
 
           <!-- 底部操作行 -->
           <div class="flex items-center justify-between mt-3">
             <div class="flex items-center gap-2">
-              <!-- 上传剧本 -->
+              <!-- 上传剧本文件 -->
               <el-upload
                 :show-file-list="false"
                 accept=".txt,.md,.docx"
                 :before-upload="handleScriptUpload"
               >
-                <button class="seko-btn-ghost !rounded-full !py-1.5 text-sm">
+                <button class="lbp-btn-ghost !rounded-full !py-1.5 text-sm">
                   <el-icon :size="15"><UploadFilled /></el-icon>
-                  上传剧本
+                  上传剧本文件
                 </button>
               </el-upload>
               <!-- 模型选择 -->
               <el-popover placement="top-start" :width="320" trigger="click">
                 <template #reference>
-                  <button class="seko-btn-ghost !rounded-full !py-1.5 text-sm">
+                  <button class="lbp-btn-ghost !rounded-full !py-1.5 text-sm">
                     <el-icon :size="15"><Cpu /></el-icon>
                     {{ selectedModelLabel }}
                     <el-icon :size="12"><ArrowDown /></el-icon>
@@ -72,7 +79,7 @@
                   >
                     <div class="text-sm text-slate-100 flex items-center gap-2">
                       {{ m.name }}
-                      <span v-if="m.is_recommended" class="seko-tag">推荐</span>
+                      <span v-if="m.is_recommended" class="lbp-tag">推荐</span>
                     </div>
                     <div v-if="m.description" class="text-xs text-slate-500 mt-0.5 line-clamp-1">{{ m.description }}</div>
                   </div>
@@ -80,7 +87,7 @@
               </el-popover>
             </div>
 
-            <button class="seko-btn-primary !px-6" :disabled="creating" @click="handleCreate">
+            <button class="lbp-btn-primary !px-6" :disabled="creating || !canSubmit" @click="handleCreate">
               <el-icon v-if="creating" class="animate-spin"><Loading /></el-icon>
               <el-icon v-else :size="16"><VideoPlay /></el-icon>
               {{ creating ? 'AI 策划中...' : '开始创作' }}
@@ -90,7 +97,7 @@
 
         <!-- 类型 chips -->
         <div class="flex flex-wrap items-center justify-center gap-3 mt-6">
-          <div v-for="c in categories" :key="c.label" class="seko-chip" @click="applyTemplate(c)">
+          <div v-for="c in categories" :key="c.label" class="lbp-chip" @click="applyTemplate(c)">
             <span class="text-brand-400">{{ c.emoji }}</span>
             {{ c.label }}
           </div>
@@ -100,17 +107,16 @@
 
     <!-- 特色功能 -->
     <section class="px-6 py-8 max-w-6xl mx-auto">
-      <h2 class="seko-section-title">特色功能</h2>
+      <h2 class="lbp-section-title">特色功能</h2>
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <div
           v-for="f in features"
           :key="f.title"
-          class="seko-card seko-card-hover p-4 cursor-pointer group"
+          class="lbp-card lbp-card-hover p-4 cursor-pointer group"
           @click="onFeatureClick(f)"
         >
           <div class="aspect-video rounded-lg mb-3 overflow-hidden bg-ink-800 flex items-center justify-center relative">
-            <img v-if="f.cover" :src="f.cover" class="w-full h-full object-cover" />
-            <el-icon v-else :size="32" class="text-brand-400"><component :is="f.icon" /></el-icon>
+            <el-icon :size="32" class="text-brand-400"><component :is="f.icon" /></el-icon>
             <span v-if="f.badge" class="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-brand-400 text-black text-[10px] font-semibold">
               {{ f.badge }}
             </span>
@@ -121,7 +127,7 @@
       </div>
     </section>
 
-    <!-- Seko TV / 技能社区 / 资源活动 -->
+    <!-- LBP_M TV / 技能社区 / 资源活动 -->
     <section class="px-6 pb-16 max-w-6xl mx-auto">
       <div class="flex items-center gap-2 mb-5 border-b border-ink-800">
         <button
@@ -137,7 +143,7 @@
       </div>
 
       <!-- 分类筛选 -->
-      <div v-if="contentTab === 'Seko TV'" class="flex flex-wrap items-center gap-2 mb-5">
+      <div v-if="contentTab === 'LBP_M TV'" class="flex flex-wrap items-center gap-2 mb-5">
         <button
           v-for="cat in tvCategories"
           :key="cat"
@@ -150,11 +156,11 @@
       </div>
 
       <!-- 作品网格 -->
-      <div v-if="contentTab === 'Seko TV'" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div v-if="contentTab === 'LBP_M TV'" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         <div
           v-for="w in filteredWorks"
           :key="w.id"
-          class="seko-card seko-card-hover overflow-hidden cursor-pointer group"
+          class="lbp-card lbp-card-hover overflow-hidden cursor-pointer group"
           @click="forkWork(w)"
         >
           <div class="aspect-video bg-ink-800 relative overflow-hidden">
@@ -169,7 +175,7 @@
           <div class="p-3">
             <div class="text-sm text-slate-100 line-clamp-1">{{ w.title }}</div>
             <div class="flex items-center justify-between mt-2 text-xs text-slate-500">
-              <span class="flex items-center gap-1"><el-icon :size="12"><User /></el-icon>{{ w.author || 'Seko 用户' }}</span>
+              <span class="flex items-center gap-1"><el-icon :size="12"><User /></el-icon>{{ w.author || 'LBP_M 用户' }}</span>
               <span class="flex items-center gap-2">
                 <span class="flex items-center gap-0.5"><el-icon :size="12"><Star /></el-icon>{{ w.like_count }}</span>
                 <span class="flex items-center gap-0.5"><el-icon :size="12"><View /></el-icon>{{ w.view_count }}</span>
@@ -187,7 +193,7 @@
         <div
           v-for="s in skills"
           :key="s.id"
-          class="seko-card seko-card-hover p-4 cursor-pointer"
+          class="lbp-card lbp-card-hover p-4 cursor-pointer"
           @click="$router.push('/skills')"
         >
           <div class="flex items-center gap-2 mb-2">
@@ -199,7 +205,7 @@
           <div class="text-xs text-slate-500 line-clamp-2">{{ s.description }}</div>
           <div class="flex items-center justify-between mt-3 text-xs">
             <span class="text-slate-500">安装 {{ s.install_count }}</span>
-            <span v-if="s.is_official" class="seko-tag">官方</span>
+            <span v-if="s.is_official" class="lbp-tag">官方</span>
           </div>
         </div>
       </div>
@@ -225,9 +231,10 @@ import type { Inspiration, Skill, ModelCatalog } from '@/api/types'
 
 const router = useRouter()
 
-// ============ 创作输入 ============
-const prompt = ref('')
-const mode = ref<'studio' | 'canvas'>('studio')
+// ============ 创作输入（剧名 + 完整剧本 → 一步创建项目+落库+AI 解析画布） ============
+const projectName = ref('')
+const scriptText = ref('')
+const mode = ref<string>('studio')
 const creating = ref(false)
 const modelId = ref('')
 
@@ -243,7 +250,7 @@ const selectedModelLabel = computed(() => {
   return m ? m.name : '选择模型'
 })
 
-// 类型模板
+// 类型模板：点击直接填到剧本框（这是「AI 剧本扩写」思路：用户选题材 → AI 补一段短剧本；下面留口子）
 const categories = [
   { label: '出海短剧', emoji: '🌊', prompt: '写一个出海复仇短剧：女主被豪门未婚夫背叛，重生后逆袭复仇，节奏快、反转多。' },
   { label: '短剧漫剧', emoji: '🎬', prompt: '写一个都市甜宠漫剧：社恐漫画家与高冷总裁的错位恋爱，轻松搞笑。' },
@@ -252,73 +259,61 @@ const categories = [
 ]
 
 const applyTemplate = (c: { label: string; prompt: string }) => {
-  prompt.value = c.prompt
+  // 模板填充剧本框（注意：这是「题材种子」，用户可继续编辑）
+  scriptText.value = c.prompt
+  if (!projectName.value) {
+    projectName.value = c.label
+  }
+  ElMessage.info(`已填入「${c.label}」题材种子，请补充为完整剧本或直接点击开始创作`)
 }
 
-// 上传剧本
+// 上传剧本文件
 const handleScriptUpload = (file: File) => {
   const reader = new FileReader()
   reader.onload = () => {
-    prompt.value = String(reader.result || '')
-    ElMessage.success('剧本已导入，可直接开始创作')
+    scriptText.value = String(reader.result || '')
+    ElMessage.success('剧本已导入，请补充剧名后点击开始创作')
   }
   reader.readAsText(file)
   return false
 }
 
-// 开始创作：根据输入长度智能分流
-// - 短输入（≤200 字）：当作灵感，走 7 步自动创作
-// - 长输入（>200 字）：当作完整剧本，先创建项目 → parse-script 落库为持久化剧本版本 → 再 7 步生成角色/场景/分镜
-// 这样避免了原「用 query 传长剧本」的 431 报错。
-const isFullScript = computed(() => prompt.value.trim().length > 200)
+// 可提交校验
+const canSubmit = computed(
+  () => projectName.value.trim().length > 0 && scriptText.value.trim().length >= 10,
+)
 
-// 判定提示
+// 提示文字
 const hintText = computed(() => {
-  const len = prompt.value.trim().length
-  if (len === 0) return '输入你的灵感，AI 会为你自动策划内容生成视频'
-  if (len <= 200) return `检测为「灵感描述」（${len} 字）→ 将走 AI 自动策划`
-  return `检测为「完整剧本」（${len} 字）→ 将落库为项目剧本并自动拆分角色/场景/分镜`
+  const len = scriptText.value.trim().length
+  if (!projectName.value.trim()) return '先给短剧起个名字，再粘贴完整剧本'
+  if (len === 0) return '粘贴或上传完整剧本（剧情剧本 / 旁白解说 / 分镜表）'
+  if (len < 10) return `剧本至少 10 字（当前 ${len}）`
+  return '点击「开始创作」：AI 会识别角色/场景/分镜，并自动建立画布骨架'
 })
 
+// 开始创作（统一入口 → POST /projects/create-with-script）
 const handleCreate = async () => {
-  if (!prompt.value.trim()) {
-    ElMessage.warning('请先输入你的灵感或剧本')
+  if (!canSubmit.value) {
+    ElMessage.warning('请填写剧名 + 至少 10 字剧本')
     return
   }
   creating.value = true
   try {
-    if (isFullScript.value) {
-      // ============ 完整剧本路径 ============
-      // 1) 创建空项目（只带名字 + prompt）
-      const projectName = prompt.value.trim().slice(0, 24) || '未命名项目'
-      const project = await projectsApi.create({
-        name: projectName,
-        prompt: prompt.value,
-      })
-      ElMessage.info('正在解析完整剧本…')
-      // 2) 用 body POST 解析完整剧本（修复 431）
-      const parseRes = await projectsApi.parseScript(project.id, {
-        script_text: prompt.value,
-        format_hint: 'auto',
-      })
-      if (!parseRes?.ok) {
-        ElMessage.error(parseRes?.error || '剧本解析失败')
-        return
-      }
-      ElMessage.success(
-        `剧本已保存，已识别 ${parseRes.character_count || 0} 个角色 / ${parseRes.scene_count || 0} 个场景 / ${parseRes.shot_count || 0} 个分镜`,
-      )
-      router.push(`/canvas/${project.id}`)
-    } else {
-      // ============ 灵感短描述路径（原 7 步流程） ============
-      const project = await projectsApi.create({
-        name: prompt.value.slice(0, 24) || '未命名项目',
-        prompt: prompt.value,
-      })
-      ElMessage.info('AI 正在为你自动策划内容...')
-      await projectsApi.startCreation(project.id, { prompt: prompt.value })
-      router.push(`/canvas/${project.id}`)
+    ElMessage.info('正在创建项目并解析剧本…')
+    const res = await projectsApi.createWithScript({
+      name: projectName.value.trim(),
+      script_text: scriptText.value,
+      format_hint: 'auto',
+    })
+    if (!res?.ok) {
+      ElMessage.error('创作失败')
+      return
     }
+    ElMessage.success(
+      `已创建项目并落库剧本 v${res.script_version}，识别 ${res.character_count} 个角色 / ${res.scene_count} 个场景 / ${res.shot_count} 个分镜`,
+    )
+    router.push(`/canvas/${res.project_id}`)
   } catch (e: any) {
     ElMessage.error(e?.message || '创作失败，请重试')
   } finally {
@@ -328,43 +323,42 @@ const handleCreate = async () => {
 
 // ============ 特色功能 ============
 const features = [
-  { title: '空白画布', desc: '从零开始的自由创作空间，节点式组合素材', icon: Picture, action: 'blank-canvas' },
   { title: 'Seedance2.5 视频生成', desc: '最新视频模型，多镜头叙事更连贯', icon: VideoPlay, badge: 'NEW', action: 'seedance' },
   { title: '第一视角催泪短片', desc: '编导李让 · 第一视角情感短片模板', icon: Film, action: 'template-tear' },
-  { title: '山音编剧大师2.0', desc: 'Seko 独家 · 专业级剧本创作引擎', icon: MagicStick, badge: '独家', action: 'script-master' },
+  { title: '山音编剧大师2.0', desc: 'LBP_M 独家 · 专业级剧本创作引擎', icon: MagicStick, badge: '独家', action: 'script-master' },
   { title: '出海剧转绘', desc: '中文剧本一键转制多语言出海短剧', icon: Promotion, action: 'translate' },
 ]
 
-const onFeatureClick = async (f: { action: string; title: string }) => {
-  if (f.action === 'blank-canvas') {
-    try {
-      const project = await projectsApi.create({ name: '空白画布' })
-      router.push(`/canvas/${project.id}`)
-    } catch {
-      ElMessage.error('创建失败')
-    }
-    return
-  }
+const onFeatureClick = (f: { action: string; title: string }) => {
   if (f.action === 'seedance') {
     modelId.value = 'seedance-2.0'
     ElMessage.success('已选择 Seedance 2.0 视频模型')
     return
   }
+  // 其他模板：把素材填到剧本框，引导用户点「开始创作」
+  if (f.action === 'template-tear') {
+    projectName.value = '第一视角催泪短片'
+    scriptText.value = '创作一部第一视角催泪短片：一位父亲在女儿婚礼前夜，翻看她从小到大的照片，回忆涌上心头。'
+    ElMessage.info('已填入模板，请补充剧名/剧本后点击「开始创作」')
+    return
+  }
   if (f.action === 'script-master') {
-    prompt.value = '请以专业编剧水准创作一部 5 集都市情感短剧大纲，要求人物弧光完整、每集结尾有钩子。'
+    projectName.value = '山音编剧大师 · 都市情感短剧'
+    scriptText.value = '请以专业编剧水准创作一部 5 集都市情感短剧大纲，要求人物弧光完整、每集结尾有钩子。'
+    ElMessage.info('已填入模板，请点击「开始创作」')
     return
   }
   if (f.action === 'translate') {
-    prompt.value = '把下面的中文短剧剧本转制为英语出海版本，保留节奏与反转：'
+    projectName.value = '出海剧转绘'
+    scriptText.value = '把下面的中文短剧剧本转制为英语出海版本，保留节奏与反转：\n\n（粘贴你的中文剧本…）'
+    ElMessage.info('已填入模板，请补充剧本后点击「开始创作」')
     return
   }
-  // 第一视角催泪短片模板
-  prompt.value = '创作一部第一视角催泪短片：一位父亲在女儿婚礼前夜，翻看她从小到大的照片，回忆涌上心头。'
 }
 
 // ============ 内容区 ============
-const contentTabs = ['Seko TV', '技能社区', '资源活动']
-const contentTab = ref('Seko TV')
+const contentTabs = ['LBP_M TV', '技能社区', '资源活动']
+const contentTab = ref('LBP_M TV')
 
 const tvCategories = ['全部', '精选画布', '短剧漫剧', '叙事短片', 'IP剧集', '动画二次元', '广告TVC', '教程案例']
 const tvCategory = ref('全部')

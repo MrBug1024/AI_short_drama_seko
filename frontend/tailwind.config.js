@@ -1,12 +1,12 @@
 /** @type {import('tailwindcss').Config} */
-// Seko 官网视觉规范：纯黑背景 + 青绿(brand) 强调色；rgb() 三元组支持 /80 透明度修饰符
+// LBP_M 视觉规范：纯黑背景 + 青绿(brand) 强调色；rgb() 三元组支持 /80 透明度修饰符
 export default {
   content: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
   darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        // 背景色阶（Seko 纯黑深色主题）
+        // 背景色阶（LBP_M 纯黑深色主题）
         ink: {
           950: 'rgb(5 5 5)',
           900: 'rgb(10 10 10)',
@@ -16,7 +16,7 @@ export default {
           700: 'rgb(42 42 42)',
           600: 'rgb(64 64 64)',
         },
-        // 主品牌色 - Seko 青绿（公告条/强调/输入框高亮）
+        // 主品牌色 - LBP_M 青绿（公告条/强调/输入框高亮）
         brand: {
           50: 'rgb(240 253 250)',
           100: 'rgb(204 251 241)',

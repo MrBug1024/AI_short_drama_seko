@@ -3,7 +3,7 @@
 参考开源短剧/故事生成项目的提示词实践：
 - MoneyPrinterTurbo / ShortGPT：结构化分镜 prompt
 - StoryDiffusion / ConsiStory：角色一致性描述（固定外貌锚点 + 多视图设计稿）
-- Seko / OiiOii：7-Agent 流程各自的职责提示词
+- OiiOii / Lum 风格：7-Agent 流程各自的职责提示词
 
 核心原则：
 1. 生图 prompt 必须包含【主体+外貌锚点+动作+场景+镜头语言+画风+质量词】

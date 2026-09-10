@@ -1,4 +1,4 @@
-"""角色模型 - 角色一致性控制（SekoIDX 占位）"""
+"""角色模型 - 角色一致性控制"""
 from datetime import datetime
 from sqlalchemy import String, Text, DateTime, Integer, ForeignKey, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship

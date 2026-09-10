@@ -209,7 +209,7 @@ async def list_models(
     vendor: str = "",
     db: AsyncSession = Depends(get_db),
 ):
-    """模型目录 - 模仿 Seko 聚合模型（Seedance/可灵/即梦/万相/Nano Banana/Midjourney 等）"""
+    """模型目录 - 聚合模型（Seedance/可灵/即梦/万相/Nano Banana/Midjourney 等）"""
     stmt = select(ModelCatalog).where(ModelCatalog.enabled == True)
     if model_type:
         stmt = stmt.where(ModelCatalog.model_type == model_type)

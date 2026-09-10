@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== Seko 全局样式 - 深色主题 ===== */
+/* ===== LBP_M 全局样式 - 深色主题 ===== */
 html, body, #app {
   height: 100%;
   margin: 0;
@@ -28,7 +28,7 @@ html.dark {
   --el-color-primary: rgb(45 224 200);
 }
 
-/* 自定义滚动条（Seko 深色细滚动条） */
+/* 自定义滚动条（LBP_M 深色细滚动条） */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgb(52 52 52); border-radius: 3px; }
@@ -36,38 +36,38 @@ html.dark {
 
 /* 通用工具类 */
 @layer components {
-  .seko-card {
+  .lbp-card {
     @apply bg-ink-850 border border-ink-700/60 rounded-xl shadow-card transition-all duration-300;
   }
-  .seko-card-hover {
+  .lbp-card-hover {
     @apply hover:border-brand-500/40 hover:shadow-glow-brand hover:-translate-y-0.5;
   }
-  .seko-btn-primary {
+  .lbp-btn-primary {
     @apply inline-flex items-center gap-2 px-4 py-2 bg-white text-black
            font-medium rounded-full hover:bg-slate-200 transition-all;
   }
-  .seko-btn-dark {
+  .lbp-btn-dark {
     @apply inline-flex items-center gap-2 px-4 py-2 bg-black text-white
            font-medium rounded-full hover:bg-ink-800 transition-all;
   }
-  .seko-btn-ghost {
+  .lbp-btn-ghost {
     @apply inline-flex items-center gap-2 px-4 py-2 bg-ink-800/80 border border-ink-700
            text-slate-200 rounded-lg hover:bg-ink-750 hover:border-brand-500/40 transition-all;
   }
-  .seko-tag {
+  .lbp-tag {
     @apply inline-flex items-center px-2 py-0.5 text-xs rounded-md
            bg-brand-500/10 text-brand-300 border border-brand-500/30;
   }
-  .seko-input {
+  .lbp-input {
     @apply w-full bg-ink-900/60 border border-ink-700 rounded-lg px-3 py-2
            text-slate-100 placeholder-slate-500
            focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/40 transition;
   }
-  .seko-section-title {
+  .lbp-section-title {
     @apply text-xl font-semibold text-slate-100 mb-4 flex items-center gap-2;
   }
-  /* Seko 首页分类 chip */
-  .seko-chip {
+  /* LBP_M 首页分类 chip */
+  .lbp-chip {
     @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl
            bg-ink-800/90 border border-ink-700/60 text-sm text-slate-200
            hover:border-brand-500/50 hover:text-white cursor-pointer transition-all;
@@ -92,7 +92,7 @@ html.dark {
   background: linear-gradient(to top, rgb(5 5 5 / 0.95) 0%, rgb(5 5 5 / 0) 60%);
 }
 
-/* 画布点状网格背景（Seko 首页/画布） */
+/* 画布点状网格背景（LBP_M 首页/画布） */
 .dot-grid {
   background-image: radial-gradient(rgb(255 255 255 / 0.08) 1px, transparent 1px);
   background-size: 24px 24px;

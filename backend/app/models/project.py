@@ -1,6 +1,6 @@
 """项目模型 - 一个短剧项目对应一个 AI 创作工程"""
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Integer, func
+from sqlalchemy import String, Text, DateTime, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -13,6 +13,11 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     description: Mapped[str] = mapped_column(Text, default="")
     cover_url: Mapped[str] = mapped_column(String(500), default="")
+
+    # 归属用户（NULL = 匿名/历史遗留项目，所有用户可见）
+    owner_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
 
     # 创作状态
     status: Mapped[str] = mapped_column(String(32), default="draft")  # draft/creating/processing/completed/failed
@@ -35,3 +40,6 @@ class Project(Base):
     canvas_nodes = relationship("CanvasNode", back_populates="project", cascade="all, delete-orphan")
     canvas_edges = relationship("CanvasEdge", back_populates="project", cascade="all, delete-orphan")
     tasks = relationship("GenerationTask", back_populates="project", cascade="all, delete-orphan")
+
+    # 用户归属
+    owner = relationship("User", back_populates="projects")

@@ -1,4 +1,7 @@
-"""Seko AI 短视频创作平台 - FastAPI 主入口"""
+"""LBP_M 短剧创作平台 - FastAPI 主入口
+LBP = Lumière Brothers（卢米埃尔兄弟）
+M = 用户名的「梦」字首拼
+"""
 import asyncio
 import os
 from pathlib import Path
@@ -13,7 +16,7 @@ from app.core.config import settings
 from app.core.database import init_db, AsyncSessionLocal
 from app.core.logging import setup_logger
 
-from app.api import projects, assets, canvas, tasks, providers, skills, inspiration, membership, media, script, design
+from app.api import auth, projects, assets, canvas, tasks, providers, skills, inspiration, membership, media, script, design
 from app.skills.registry import ensure_default_skills
 from app.core.seed import run_all_seeds
 from app.services.task_poller import poller_loop
@@ -64,15 +67,17 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="""
-# Seko AI 短视频创作平台
+# LBP_M 短剧创作平台
 
-商汤 Seko 风格的 AI 短剧创作 Agent 平台。
+LBP = Lumière Brothers（卢米埃尔兄弟，致敬电影之父）
+M = 用户名的「梦」字首拼
+灵感：仿商汤 Seko 视觉的 AI 短剧创作 Agent 平台。
 
 ## 核心特性
 - 🎬 **7 步创作流程**：从创意到成片，全流程自动化
 - 🎨 **无限画布**：节点式工作流，支持拖拽/连线/缩放
-- 🧑 **角色一致性**（SekoIDX 占位）：跨集形象一致
-- 🗣 **多角色口型同步**（SekoTalk 占位）：多人口型自然对齐
+- 🧑 **角色一致性**：跨集形象一致
+- 🗣 **多角色口型同步**：多人口型自然对齐
 - 🎵 **音频分离**：人声/配乐/环境声一键分离
 - 🌍 **出海剧转绘**：外语视频转本地化分镜+翻译配音
 
@@ -144,6 +149,7 @@ async def health():
 
 # 注册路由
 API_PREFIX = "/api/v1"
+app.include_router(auth.router, prefix=API_PREFIX, tags=["用户认证"])
 app.include_router(projects.router, prefix=API_PREFIX, tags=["项目"])
 app.include_router(assets.router, prefix=API_PREFIX, tags=["资产（角色/场景/道具/分镜）"])
 app.include_router(canvas.router, prefix=API_PREFIX, tags=["无限画布"])

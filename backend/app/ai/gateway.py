@@ -368,7 +368,7 @@ class AIGateway:
         voice: str = "default",
         language: str = "zh",
     ) -> Dict[str, Any]:
-        """TTS 配音（Seko 占位）"""
+        """TTS 配音（占位）"""
         if not settings.has_audio:
             return {"url": "", "duration": len(text) * 0.15}
         # 实际实现略，返回 mock
