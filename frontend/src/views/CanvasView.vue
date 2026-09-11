@@ -34,9 +34,50 @@
         </button>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="images">批量生成分镜图</el-dropdown-item>
-            <el-dropdown-item command="videos">批量生成分镜视频</el-dropdown-item>
-            <el-dropdown-item command="compose">合成完整视频</el-dropdown-item>
+            <!-- 一级分组：批量补齐空白字段 -->
+            <el-dropdown-item command="enrich-characters">
+              <el-icon><MagicStick /></el-icon>
+              批量补齐角色空白项
+            </el-dropdown-item>
+            <el-dropdown-item command="enrich-scenes">
+              <el-icon><MagicStick /></el-icon>
+              批量补齐场景空白项
+            </el-dropdown-item>
+            <el-dropdown-item command="enrich-shots">
+              <el-icon><MagicStick /></el-icon>
+              批量补齐分镜空白项
+            </el-dropdown-item>
+            <el-dropdown-item divided command="enrich-all">
+              <el-icon><Refresh /></el-icon>
+              全部批量补齐（角色+场景+分镜）
+            </el-dropdown-item>
+            <!-- 二级分组：批量生成新实体 -->
+            <el-dropdown-item divided command="generate-characters">
+              <el-icon><Plus /></el-icon>
+              批量生成新角色
+            </el-dropdown-item>
+            <el-dropdown-item command="generate-scenes">
+              <el-icon><Plus /></el-icon>
+              批量生成新场景
+            </el-dropdown-item>
+            <!-- 关系修复 -->
+            <el-dropdown-item divided command="repair-relations">
+              <el-icon><Connection /></el-icon>
+              修复分镜→场景/角色关系
+            </el-dropdown-item>
+            <!-- 三级分组：批量出图/视频 -->
+            <el-dropdown-item divided command="images">
+              <el-icon><Picture /></el-icon>
+              批量生成分镜图
+            </el-dropdown-item>
+            <el-dropdown-item command="videos">
+              <el-icon><VideoCamera /></el-icon>
+              批量生成分镜视频
+            </el-dropdown-item>
+            <el-dropdown-item command="compose">
+              <el-icon><Film /></el-icon>
+              合成完整视频
+            </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -280,17 +321,19 @@
       <span>滚轮缩放 · 拖拽空白平移 · 拖拽节点移动 · 双击节点打开设计</span>
     </footer>
 
-    <!-- 视频生成模型选择弹窗 -->
-    <el-dialog v-model="videoDialog.visible" title="视频生成" width="380px" append-to-body>
+    <!-- 视频生成确认弹窗（默认模型，无需选择） -->
+    <el-dialog v-model="videoDialog.visible" title="生成视频" width="380px" append-to-body>
       <div class="space-y-3">
-        <div>
-          <div class="text-xs text-slate-400 mb-1.5">选择模型</div>
-          <el-select v-model="videoDialog.model" class="w-full">
-            <el-option v-for="m in videoModels" :key="m.code" :label="m.name" :value="m.code" />
-          </el-select>
+        <div class="text-xs text-slate-300">
+          将基于节点「<span class="text-white font-medium">{{ videoDialog.title }}</span>」生成视频
         </div>
-        <div class="text-xs text-slate-500">
-          将基于节点「{{ videoDialog.title }}」的分镜图生成视频
+        <div class="text-[11px] text-slate-500 leading-relaxed">
+          <div v-if="videoDialog.hasImage" class="text-emerald-400">
+            ✓ 已检测到分镜参考图，将使用图生视频模型
+          </div>
+          <div v-else class="text-amber-400">
+            ⚠ 暂无分镜参考图，将使用文生视频模型（建议先批量生成分镜图）
+          </div>
         </div>
       </div>
       <template #footer>
@@ -381,24 +424,62 @@
 
         <!-- 角色设定表单 -->
         <div class="space-y-2.5">
-          <div class="text-xs font-medium text-slate-300">角色设定</div>
-          <el-input v-model="designPanel.character.name" placeholder="姓名" size="small" />
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-300">
+              角色设定
+              <span v-if="characterEmptyFields.length" class="ml-1 text-[10px] text-amber-400">⚠ {{ characterEmptyFields.length }} 个空白</span>
+            </span>
+            <div class="flex items-center gap-1">
+              <el-dropdown trigger="click" @command="(c: string) => handleCharacterBatch(c)">
+                <button
+                  class="lbp-btn-ghost !py-0.5 text-[11px]"
+                  :disabled="designPanel.busy"
+                >
+                  <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
+                  <el-icon v-else :size="11"><Operation /></el-icon>
+                  批量
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="enrich-entity">
+                      <el-icon><MagicStick /></el-icon>补充本角色空白
+                    </el-dropdown-item>
+                    <el-dropdown-item command="enrich-all">
+                      <el-icon><MagicStick /></el-icon>补齐所有角色空白
+                    </el-dropdown-item>
+                    <el-dropdown-item divided command="generate-3">
+                      <el-icon><Plus /></el-icon>批量生成 3 个新角色
+                    </el-dropdown-item>
+                    <el-dropdown-item command="generate-5">
+                      <el-icon><Plus /></el-icon>批量生成 5 个新角色
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </div>
+          <el-input
+            v-model="designPanel.character.name"
+            placeholder="姓名"
+            size="small"
+            :class="{ 'is-empty': !designPanel.character.name }"
+          />
           <div class="grid grid-cols-2 gap-2">
-            <el-input v-model="designPanel.character.alias" placeholder="别名" size="small" />
-            <el-input v-model.number="designPanel.character.age" placeholder="年龄" size="small" type="number" />
+            <el-input v-model="designPanel.character.alias" placeholder="别名" size="small" :class="{ 'is-empty': !designPanel.character.alias }" />
+            <el-input v-model.number="designPanel.character.age" placeholder="年龄" size="small" type="number" :class="{ 'is-empty': !designPanel.character.age }" />
           </div>
           <div class="grid grid-cols-2 gap-2">
-            <el-select v-model="designPanel.character.gender" placeholder="性别" size="small">
+            <el-select v-model="designPanel.character.gender" placeholder="性别" size="small" :class="{ 'is-empty': !designPanel.character.gender }" class="w-full">
               <el-option label="男" value="男" /><el-option label="女" value="女" /><el-option label="其他" value="其他" />
             </el-select>
-            <el-select v-model="designPanel.character.role" placeholder="角色定位" size="small">
+            <el-select v-model="designPanel.character.role" placeholder="角色定位" size="small" :class="{ 'is-empty': !designPanel.character.role }" class="w-full">
               <el-option label="主角" value="主角" /><el-option label="配角" value="配角" /><el-option label="反派" value="反派" />
             </el-select>
           </div>
-          <el-input v-model="designPanel.character.appearance" type="textarea" :rows="3" placeholder="外貌描述（发型/脸型/五官/体型，越具体生成越准）" size="small" />
-          <el-input v-model="designPanel.character.outfit" type="textarea" :rows="2" placeholder="服装（款式+颜色）" size="small" />
-          <el-input v-model="designPanel.character.personality" type="textarea" :rows="2" placeholder="性格" size="small" />
-          <el-input v-model="designPanel.character.backstory" type="textarea" :rows="2" placeholder="背景故事" size="small" />
+          <el-input v-model="designPanel.character.appearance" type="textarea" :rows="3" placeholder="外貌描述（发型/脸型/五官/体型，越具体生成越准）" size="small" :class="{ 'is-empty': !designPanel.character.appearance }" />
+          <el-input v-model="designPanel.character.outfit" type="textarea" :rows="2" placeholder="服装（款式+颜色）" size="small" :class="{ 'is-empty': !designPanel.character.outfit }" />
+          <el-input v-model="designPanel.character.personality" type="textarea" :rows="2" placeholder="性格" size="small" :class="{ 'is-empty': !designPanel.character.personality }" />
+          <el-input v-model="designPanel.character.backstory" type="textarea" :rows="2" placeholder="背景故事" size="small" :class="{ 'is-empty': !designPanel.character.backstory }" />
           <div class="flex gap-2">
             <button class="lbp-btn-ghost flex-1 !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveCharacter">保存设定</button>
           </div>
@@ -433,17 +514,50 @@
           </div>
         </div>
         <div class="space-y-2.5">
-          <div class="text-xs font-medium text-slate-300">场景设定</div>
-          <el-input v-model="designPanel.scene.name" placeholder="场景名" size="small" />
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-300">
+              场景设定
+              <span v-if="sceneEmptyFields.length" class="ml-1 text-[10px] text-amber-400">⚠ {{ sceneEmptyFields.length }} 个空白</span>
+            </span>
+            <el-dropdown trigger="click" @command="(c: string) => handleSceneBatch(c)">
+              <button
+                class="lbp-btn-ghost !py-0.5 text-[11px]"
+                :disabled="designPanel.busy"
+              >
+                <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
+                <el-icon v-else :size="11"><Operation /></el-icon>
+                批量
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="enrich-entity">
+                    <el-icon><MagicStick /></el-icon>补充本场景空白
+                  </el-dropdown-item>
+                  <el-dropdown-item command="enrich-all">
+                    <el-icon><MagicStick /></el-icon>补齐所有场景空白
+                  </el-dropdown-item>
+                  <el-dropdown-item divided command="generate-3">
+                    <el-icon><Plus /></el-icon>批量生成 3 个新场景
+                  </el-dropdown-item>
+                  <el-dropdown-item command="generate-5">
+                    <el-icon><Plus /></el-icon>批量生成 5 个新场景
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+          <el-input v-model="designPanel.scene.name" placeholder="场景名" size="small" :class="{ 'is-empty': !designPanel.scene.name }" />
           <div class="grid grid-cols-2 gap-2">
-            <el-input v-model="designPanel.scene.location" placeholder="地点" size="small" />
-            <el-select v-model="designPanel.scene.time_of_day" placeholder="时间" size="small">
+            <el-input v-model="designPanel.scene.location" placeholder="地点" size="small" :class="{ 'is-empty': !designPanel.scene.location }" />
+            <el-select v-model="designPanel.scene.time_of_day" placeholder="时间" size="small" :class="{ 'is-empty': !designPanel.scene.time_of_day }" class="w-full">
               <el-option label="白天" value="day" /><el-option label="黄昏" value="dusk" />
               <el-option label="夜晚" value="night" /><el-option label="清晨" value="dawn" />
             </el-select>
           </div>
-          <el-input v-model="designPanel.scene.description" type="textarea" :rows="2" placeholder="场景描述" size="small" />
-          <el-input v-model="designPanel.scene.visual_prompt" type="textarea" :rows="2" placeholder="视觉提示词（空间+物件+光线+色调）" size="small" />
+          <el-input v-model="designPanel.scene.weather" placeholder="天气（晴/雨/雪/阴/雾）" size="small" :class="{ 'is-empty': !designPanel.scene.weather }" />
+          <el-input v-model="designPanel.scene.mood" placeholder="氛围关键词（压抑/温馨/紧张/诡异）" size="small" :class="{ 'is-empty': !designPanel.scene.mood }" />
+          <el-input v-model="designPanel.scene.description" type="textarea" :rows="2" placeholder="场景描述（空间布局+关键物件+光线+色调）" size="small" :class="{ 'is-empty': !designPanel.scene.description }" />
+          <el-input v-model="designPanel.scene.visual_prompt" type="textarea" :rows="2" placeholder="视觉提示词（构图+前景中景背景+光线+色调）" size="small" :class="{ 'is-empty': !designPanel.scene.visual_prompt }" />
           <button class="lbp-btn-ghost w-full !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveScene">保存设定</button>
         </div>
         <div class="space-y-2 pt-2 border-t border-ink-800">
@@ -488,17 +602,43 @@
           </div>
         </div>
         <div class="space-y-2.5">
-          <div class="text-xs font-medium text-slate-300">镜头设定</div>
-          <el-input v-model="designPanel.shot.description" type="textarea" :rows="2" placeholder="画面描述（谁在做什么）" size="small" />
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-300">
+              镜头设定
+              <span v-if="shotEmptyFields.length" class="ml-1 text-[10px] text-amber-400">⚠ {{ shotEmptyFields.length }} 个空白</span>
+            </span>
+            <el-dropdown trigger="click" @command="(c: string) => handleShotBatch(c)">
+              <button
+                class="lbp-btn-ghost !py-0.5 text-[11px]"
+                :disabled="designPanel.busy"
+              >
+                <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
+                <el-icon v-else :size="11"><Operation /></el-icon>
+                批量
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="enrich-entity">
+                    <el-icon><MagicStick /></el-icon>补充本分镜空白
+                  </el-dropdown-item>
+                  <el-dropdown-item command="enrich-all">
+                    <el-icon><MagicStick /></el-icon>补齐所有分镜空白
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+          <el-input v-model="designPanel.shot.description" type="textarea" :rows="2" placeholder="画面描述（谁在做什么）" size="small" :class="{ 'is-empty': !designPanel.shot.description }" />
           <div class="grid grid-cols-2 gap-2">
-            <el-input v-model="designPanel.shot.composition" placeholder="构图" size="small" />
-            <el-input v-model="designPanel.shot.camera_movement" placeholder="运镜" size="small" />
+            <el-input v-model="designPanel.shot.composition" placeholder="构图（九宫格/中心/对称/三分法/对角线）" size="small" :class="{ 'is-empty': !designPanel.shot.composition }" />
+            <el-input v-model="designPanel.shot.camera_movement" placeholder="运镜（推/拉/摇/移/跟/固定/手持）" size="small" :class="{ 'is-empty': !designPanel.shot.camera_movement }" />
           </div>
           <div class="grid grid-cols-2 gap-2">
-            <el-input v-model="designPanel.shot.camera_angle" placeholder="角度/景别" size="small" />
-            <el-input v-model.number="designPanel.shot.duration_sec" placeholder="时长(秒)" size="small" type="number" />
+            <el-input v-model="designPanel.shot.camera_angle" placeholder="角度+景别（俯视中景/平视特写）" size="small" :class="{ 'is-empty': !designPanel.shot.camera_angle }" />
+            <el-input v-model.number="designPanel.shot.duration_sec" placeholder="时长(秒)" size="small" type="number" :class="{ 'is-empty': !designPanel.shot.duration_sec }" />
           </div>
-          <el-input v-model="designPanel.shot.dialogue" type="textarea" :rows="2" placeholder="台词" size="small" />
+          <el-input v-model="designPanel.shot.dialogue" type="textarea" :rows="2" placeholder="台词" size="small" :class="{ 'is-empty': !designPanel.shot.dialogue }" />
+          <el-input v-model="designPanel.shot.visual_prompt" type="textarea" :rows="2" placeholder="视觉提示词（含角色外貌特征+动作+环境）" size="small" :class="{ 'is-empty': !designPanel.shot.visual_prompt }" />
           <button class="lbp-btn-ghost w-full !py-1.5 text-xs" :disabled="designPanel.busy" @click="saveShot">保存设定</button>
         </div>
         <div class="space-y-2 pt-2 border-t border-ink-800">
@@ -514,6 +654,24 @@
 
       <!-- 剧本设计 -->
       <div v-else-if="designPanel.type === 'script'" class="space-y-4">
+        <!-- ============ 项目级操作：AI 补充所有空白字段 ============ -->
+        <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-2">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xs font-medium text-amber-300">项目级 · AI 补充所有空白字段</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">扫描项目中所有角色/场景/分镜的空字段，一次性补充。</div>
+            </div>
+            <button
+              class="lbp-btn-ghost !py-1 text-[11px] border-amber-500/40 hover:border-amber-500/80 text-amber-300"
+              :disabled="designPanel.busy"
+              @click="enrichAllEntities"
+            >
+              <el-icon v-if="designPanel.busy" class="animate-spin" :size="11"><Loading /></el-icon>
+              <el-icon v-else :size="11"><MagicStick /></el-icon>
+              一键补充
+            </button>
+          </div>
+        </div>
         <!-- ============ 完整剧本展示（持久化的脚本实体） ============ -->
         <div class="space-y-2">
           <div class="flex items-center justify-between">
@@ -624,10 +782,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, ArrowDown, Loading, MagicStick, Grid, Minus, Plus, FullScreen,
   MoreFilled, VideoPlay, Connection, User, Place, Film, Document, Headset, Close,
+  Operation, Refresh, Picture, VideoCamera,
 } from '@element-plus/icons-vue'
-import { projectsApi, canvasApi, assetsApi, tasksApi, modelsApi, mediaApi, designApi, scriptsApi } from '@/api'
+import { projectsApi, canvasApi, assetsApi, tasksApi, mediaApi, designApi, scriptsApi } from '@/api'
 import type { ScriptVersion } from '@/api'
-import type { Project, CanvasNode, CanvasEdge, ModelCatalog, Shot, Character, Scene, CharacterRelation } from '@/api/types'
+import type { Project, CanvasNode, CanvasEdge, Shot, Character, Scene, CharacterRelation } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -645,7 +804,7 @@ const planning = ref(false)
 const selectedId = ref<number | null>(null)
 const hoverEdgeKey = ref('')
 const runningTasks = ref(0)
-const videoModels = ref<ModelCatalog[]>([])
+// 视频模型选择已移除（统一使用后端 .env 配置，默认 happyhorse-1.1-r2v / t2v）
 
 // 视图变换
 const viewportRef = ref<HTMLElement | null>(null)
@@ -765,20 +924,187 @@ const aiPlan = async () => {
 
 // ============ 批量操作 ============
 const onBatchCommand = async (cmd: string) => {
+  // 一些操作耗时（AI 补齐/生成新实体），弹个 loading
+  const _loadingTips: Record<string, string> = {
+    'enrich-characters': 'AI 正在补齐角色空白字段…',
+    'enrich-scenes': 'AI 正在补齐场景空白字段…',
+    'enrich-shots': 'AI 正在补齐分镜空白字段…',
+    'enrich-all': 'AI 正在全量补齐所有实体空白字段…',
+    'generate-characters': 'AI 正在生成新角色…',
+    'generate-scenes': 'AI 正在生成新场景…',
+  }
+  const tip = _loadingTips[cmd]
+  let loadingMsg: ReturnType<typeof ElMessage> | null = null
+  if (tip) {
+    loadingMsg = ElMessage({ message: tip, type: 'info', duration: 0, showClose: true })
+  }
+
   try {
-    if (cmd === 'images') {
-      await projectsApi.batchImages(projectId)
-      ElMessage.success('已提交批量分镜图生成任务')
-    } else if (cmd === 'videos') {
-      await projectsApi.batchVideos(projectId)
-      ElMessage.success('已提交批量分镜视频生成任务')
-    } else if (cmd === 'compose') {
-      const res = await projectsApi.compose(projectId)
-      ElMessage.success(res.video_url ? '合成完成' : '合成任务已提交')
+    // 批量补齐空白字段（顶部入口：分别/全量）
+    if (cmd === 'enrich-characters') {
+      designPanel.busy = true
+      try {
+        const res = await designApi.enrichCharactersBatch(projectId)
+        if (res?.ok) {
+          ElMessage.success(
+            res.enriched > 0
+              ? `已补齐 ${res.enriched}/${res.total} 个角色的空白字段${_formatFieldsSummary(res.fields)}`
+              : '所有角色字段已完整，无需补齐'
+          )
+          await _refreshPanelData()
+        }
+      } finally { designPanel.busy = false }
+      return
     }
+    if (cmd === 'enrich-scenes') {
+      designPanel.busy = true
+      try {
+        const res = await designApi.enrichScenesBatch(projectId)
+        if (res?.ok) {
+          ElMessage.success(
+            res.enriched > 0
+              ? `已补齐 ${res.enriched}/${res.total} 个场景的空白字段${_formatFieldsSummary(res.fields)}`
+              : '所有场景字段已完整，无需补齐'
+          )
+          await _refreshPanelData()
+        }
+      } finally { designPanel.busy = false }
+      return
+    }
+    if (cmd === 'enrich-shots') {
+      designPanel.busy = true
+      try {
+        const res = await designApi.enrichShotsBatch(projectId)
+        if (res?.ok) {
+          ElMessage.success(
+            res.enriched > 0
+              ? `已补齐 ${res.enriched}/${res.total} 个分镜的空白字段${_formatFieldsSummary(res.fields)}`
+              : '所有分镜字段已完整，无需补齐'
+          )
+          await _refreshPanelData()
+        }
+      } finally { designPanel.busy = false }
+      return
+    }
+    if (cmd === 'enrich-all') {
+      designPanel.busy = true
+      try {
+        const res = await designApi.enrichProject(projectId)
+        if (res?.ok) {
+          const e = res.enriched
+          const total = e.characters + e.scenes + e.shots
+          if (total > 0) {
+            ElMessage.success(
+              `全量补齐完成：角色 ${e.characters} 个、场景 ${e.scenes} 个、分镜 ${e.shots} 个`
+            )
+          } else {
+            ElMessage.success('所有实体字段已完整，无需补齐')
+          }
+          await _refreshPanelData()
+        }
+      } finally { designPanel.busy = false }
+      return
+    }
+
+    // 批量生成新角色/场景（弹窗输入创作方向）
+    if (cmd === 'generate-characters') {
+      let count = 3
+      let focus = ''
+      try {
+        const { value: cv } = await ElMessageBox.prompt(
+          '生成几个新角色？',
+          '批量生成新角色',
+          { confirmButtonText: '下一步', cancelButtonText: '取消',
+            inputPlaceholder: '3（默认 3，最多 10）', inputValue: '3', inputPattern: /^[1-9]$|^10$/, inputErrorMessage: '请输入 1-10 的整数' }
+        )
+        count = Math.max(1, Math.min(10, parseInt(cv) || 3))
+      } catch { return }
+      try {
+        const { value } = await ElMessageBox.prompt(
+          `即将根据剧本生成 ${count} 个新角色。\n可输入创作方向（例：家庭成员/职场同事），留空则由 AI 自由发挥。`,
+          '创作方向',
+          { confirmButtonText: '开始生成', cancelButtonText: '取消', inputPlaceholder: '创作方向（可留空）', inputValue: '' }
+        )
+        focus = (value || '').trim()
+      } catch { return }
+      designPanel.busy = true
+      try {
+        const res = await designApi.batchGenerateCharacters(projectId, { count, focus })
+        if (res?.ok && res.created > 0) {
+          ElMessage.success(`已生成 ${res.created} 个新角色：${res.items.map((i) => i.name).join('、')}`)
+          await loadAll()
+        } else if (res?.ok) {
+          ElMessage.warning(res.message || 'AI 未返回有效角色')
+        }
+      } finally { designPanel.busy = false }
+      return
+    }
+    if (cmd === 'generate-scenes') {
+      let count = 3
+      let focus = ''
+      try {
+        const { value: cv } = await ElMessageBox.prompt(
+          '生成几个新场景？',
+          '批量生成新场景',
+          { confirmButtonText: '下一步', cancelButtonText: '取消',
+            inputPlaceholder: '3（默认 3，最多 10）', inputValue: '3', inputPattern: /^[1-9]$|^10$/, inputErrorMessage: '请输入 1-10 的整数' }
+        )
+        count = Math.max(1, Math.min(10, parseInt(cv) || 3))
+      } catch { return }
+      try {
+        const { value } = await ElMessageBox.prompt(
+          `即将根据剧本生成 ${count} 个新场景。\n可输入创作方向（例：医院/废弃工厂），留空则由 AI 自由发挥。`,
+          '创作方向',
+          { confirmButtonText: '开始生成', cancelButtonText: '取消', inputPlaceholder: '创作方向（可留空）', inputValue: '' }
+        )
+        focus = (value || '').trim()
+      } catch { return }
+      designPanel.busy = true
+      try {
+        const res = await designApi.batchGenerateScenes(projectId, { count, focus })
+        if (res?.ok && res.created > 0) {
+          ElMessage.success(`已生成 ${res.created} 个新场景：${res.items.map((i) => i.name).join('、')}`)
+          await loadAll()
+        } else if (res?.ok) {
+          ElMessage.warning(res.message || 'AI 未返回有效场景')
+        }
+      } finally { designPanel.busy = false }
+      return
+    }
+
+    // 关系修复（孤儿 shot 自动补 scene_id / character_ids）
+    if (cmd === 'repair-relations') {
+      try {
+        await ElMessageBox.confirm(
+          '将扫描所有分镜，修复未关联场景/角色的分镜。\n适用场景：AI 解析剧本字段缺失、apply-to-canvas 后未关联。\n\n是否继续？',
+          '修复分镜关系',
+          { confirmButtonText: '开始修复', cancelButtonText: '取消', type: 'warning' }
+        )
+      } catch { return }
+      loadingMsg = ElLoading.service({ text: '正在修复分镜关系...', background: 'rgba(0,0,0,0.6)' })
+      try {
+        const res = await designApi.repairShotRelations(projectId)
+        if (res.orphans === 0) {
+          ElMessage.success(`扫描 ${res.scanned} 个分镜，无需修复`)
+        } else {
+          ElMessage.success(
+            `扫描 ${res.scanned} 个分镜 / 孤儿 ${res.orphans} 个 / 修复场景 ${res.fixed_scene} / 修复角色 ${res.fixed_characters}`
+          )
+          await loadAll()
+        }
+      } finally {
+        try { (loadingMsg as any).close?.() } catch {}
+      }
+      return
+    }
+
     pollTasks()
   } catch {
     /* 错误已由拦截器提示 */
+  } finally {
+    if (loadingMsg) {
+      try { (loadingMsg as any).close?.() } catch {}
+    }
   }
 }
 
@@ -1107,7 +1433,7 @@ const nodeActions = (n: CanvasNode) => {
   return []
 }
 
-const videoDialog = reactive({ visible: false, model: 'seedance-2.0', node: null as CanvasNode | null, title: '', busy: false })
+const videoDialog = reactive({ visible: false, node: null as CanvasNode | null, title: '', hasImage: false, busy: false })
 
 // ============ 视频预览（本地已下载视频，支持全屏） ============
 const videoPreviewRef = ref<HTMLVideoElement | null>(null)
@@ -1216,6 +1542,8 @@ const onNodeCommand = async (cmd: string, n: CanvasNode) => {
   if (cmd === 'video') {
     videoDialog.node = n
     videoDialog.title = n.title
+    // 检测分镜节点是否有参考图，决定用图生视频还是文生视频
+    videoDialog.hasImage = !!n.thumbnail_url
     videoDialog.visible = true
     return
   }
@@ -1467,12 +1795,237 @@ const saveShot = async () => {
       description: sh.description, composition: sh.composition,
       camera_movement: sh.camera_movement, camera_angle: sh.camera_angle,
       dialogue: sh.dialogue, duration_sec: sh.duration_sec,
+      visual_prompt: sh.visual_prompt,
     })
     ElMessage.success('镜头设定已保存')
   } catch { /* ignore */ } finally {
     designPanel.busy = false
   }
 }
+
+// ============== AI 补充空白字段 ==============
+// 三个 computed：当前面板实体的空白字段名列表（用于显示警示 + 控制按钮可见性）
+const characterEmptyFields = computed(() => {
+  const ch = designPanel.character
+  if (!ch) return []
+  return (['alias', 'appearance', 'outfit', 'personality', 'backstory'] as (keyof Character)[])
+    .filter((k) => !String(ch[k] || '').trim())
+})
+const sceneEmptyFields = computed(() => {
+  const sc = designPanel.scene
+  if (!sc) return []
+  return (['location', 'time_of_day', 'weather', 'mood', 'description', 'visual_prompt'] as (keyof Scene)[])
+    .filter((k) => !String(sc[k] || '').trim())
+})
+const shotEmptyFields = computed(() => {
+  const sh = designPanel.shot
+  if (!sh) return []
+  return (['composition', 'camera_movement', 'camera_angle', 'dialogue', 'visual_prompt'] as (keyof Shot)[])
+    .filter((k) => !String(sh[k] || '').trim())
+})
+
+const enrichEntity = async () => {
+  // 按当前面板类型调用对应 enrich 端点，不重写已有内容
+  designPanel.busy = true
+  try {
+    if (designPanel.type === 'character' && designPanel.character) {
+      const ch = designPanel.character
+      const res = await designApi.enrichCharacter(ch.id)
+      if (res?.character) {
+        Object.assign(ch, res.character)
+        ElMessage.success(res.filled?.length ? `AI 补充了 ${res.filled.length} 个字段：${res.filled.join('/')}` : '该角色字段已完整')
+      }
+    } else if (designPanel.type === 'scene' && designPanel.scene) {
+      const sc = designPanel.scene
+      const res = await designApi.enrichScene(sc.id)
+      if (res?.scene) {
+        Object.assign(sc, res.scene)
+        ElMessage.success(res.filled?.length ? `AI 补充了 ${res.filled.length} 个字段：${res.filled.join('/')}` : '该场景字段已完整')
+      }
+    } else if (designPanel.type === 'shot' && designPanel.shot) {
+      const sh = designPanel.shot
+      const res = await designApi.enrichShot(sh.id)
+      if (res?.shot) {
+        Object.assign(sh, res.shot)
+        ElMessage.success(res.filled?.length ? `AI 补充了 ${res.filled.length} 个字段：${res.filled.join('/')}` : '该分镜字段已完整')
+      }
+    }
+  } catch { /* 拦截器已提示 */ } finally {
+    designPanel.busy = false
+  }
+}
+
+const enrichAllEntities = async () => {
+  designPanel.busy = true
+  try {
+    const res = await designApi.enrichProject(projectId)
+    if (res?.ok) {
+      const e = res.enriched || { characters: 0, scenes: 0, shots: 0 }
+      const total = e.characters + e.scenes + e.shots
+      ElMessage.success(
+        total > 0
+          ? `已补充 ${total} 个实体的空白字段（角色 ${e.characters} / 场景 ${e.scenes} / 分镜 ${e.shots}）。请刷新设计面板查看。`
+          : '所有实体字段已完整，无需补充。'
+      )
+      // 补充后让用户重新打开节点拿到最新数据
+      if (designPanel.character) {
+        const chars = await assetsApi.characters(projectId)
+        const fresh = chars.find((c) => c.id === designPanel.character?.id)
+        if (fresh) Object.assign(designPanel.character, fresh)
+      }
+      if (designPanel.scene) {
+        const scenes = await assetsApi.scenes(projectId)
+        const fresh = scenes.find((s) => s.id === designPanel.scene?.id)
+        if (fresh) Object.assign(designPanel.scene, fresh)
+      }
+      if (designPanel.shot) {
+        const shots = await assetsApi.shots(projectId)
+        const fresh = shots.find((s) => s.id === designPanel.shot?.id)
+        if (fresh) Object.assign(designPanel.shot, fresh)
+      }
+    }
+  } catch { /* 拦截器已提示 */ } finally {
+    designPanel.busy = false
+  }
+}
+
+// ============== 批量补齐/批量生成（按面板分） ==============
+
+const _refreshPanelData = async () => {
+  if (designPanel.character) {
+    const chars = await assetsApi.characters(projectId)
+    const fresh = chars.find((c) => c.id === designPanel.character?.id)
+    if (fresh) Object.assign(designPanel.character, fresh)
+  }
+  if (designPanel.scene) {
+    const scenes = await assetsApi.scenes(projectId)
+    const fresh = scenes.find((s) => s.id === designPanel.scene?.id)
+    if (fresh) Object.assign(designPanel.scene, fresh)
+  }
+  if (designPanel.shot) {
+    const shots = await assetsApi.shots(projectId)
+    const fresh = shots.find((s) => s.id === designPanel.shot?.id)
+    if (fresh) Object.assign(designPanel.shot, fresh)
+  }
+}
+
+const _formatFieldsSummary = (fields: Record<string, number> | undefined) => {
+  if (!fields) return ''
+  const parts = Object.entries(fields).map(([k, v]) => `${k}×${v}`)
+  return parts.length ? `（${parts.join('、')}）` : ''
+}
+
+const handleCharacterBatch = async (cmd: string) => {
+  if (cmd === 'enrich-entity') return enrichEntity()
+  if (cmd === 'enrich-all') {
+    designPanel.busy = true
+    try {
+      const res = await designApi.enrichCharactersBatch(projectId)
+      if (res?.ok) {
+        ElMessage.success(
+          res.enriched > 0
+            ? `已补齐 ${res.enriched}/${res.total} 个角色的空白字段${_formatFieldsSummary(res.fields)}。`
+            : '所有角色字段已完整。'
+        )
+        await _refreshPanelData()
+      }
+    } catch { /* 拦截器已提示 */ } finally {
+      designPanel.busy = false
+    }
+    return
+  }
+  if (cmd.startsWith('generate-')) {
+    const count = Number(cmd.split('-')[1]) || 3
+    let focus = ''
+    try {
+      const { value } = await ElMessageBox.prompt(
+        `即将根据剧本生成 ${count} 个新角色。\n可输入创作方向（例：家庭成员/职场同事），留空则由 AI 自由发挥。`,
+        '批量生成新角色',
+        { confirmButtonText: '开始生成', cancelButtonText: '取消', inputPlaceholder: '创作方向（可留空）', inputValue: '' },
+      )
+      focus = (value || '').trim()
+    } catch { return /* 用户取消 */ }
+    designPanel.busy = true
+    try {
+      const res = await designApi.batchGenerateCharacters(projectId, { count, focus })
+      if (res?.ok && res.created > 0) {
+        ElMessage.success(`已生成 ${res.created} 个新角色：${res.items.map((i) => i.name).join('、')}`)
+        // 刷新画布（让新角色节点出现）
+        await loadAll()
+      } else if (res?.ok) {
+        ElMessage.warning(res.message || 'AI 未返回有效角色')
+      }
+    } catch { /* 拦截器已提示 */ } finally {
+      designPanel.busy = false
+    }
+  }
+}
+
+const handleSceneBatch = async (cmd: string) => {
+  if (cmd === 'enrich-entity') return enrichEntity()
+  if (cmd === 'enrich-all') {
+    designPanel.busy = true
+    try {
+      const res = await designApi.enrichScenesBatch(projectId)
+      if (res?.ok) {
+        ElMessage.success(
+          res.enriched > 0
+            ? `已补齐 ${res.enriched}/${res.total} 个场景的空白字段${_formatFieldsSummary(res.fields)}。`
+            : '所有场景字段已完整。'
+        )
+        await _refreshPanelData()
+      }
+    } catch { /* 拦截器已提示 */ } finally {
+      designPanel.busy = false
+    }
+    return
+  }
+  if (cmd.startsWith('generate-')) {
+    const count = Number(cmd.split('-')[1]) || 3
+    let focus = ''
+    try {
+      const { value } = await ElMessageBox.prompt(
+        `即将根据剧本生成 ${count} 个新场景。\n可输入创作方向（例：医院/废弃工厂），留空则由 AI 自由发挥。`,
+        '批量生成新场景',
+        { confirmButtonText: '开始生成', cancelButtonText: '取消', inputPlaceholder: '创作方向（可留空）', inputValue: '' },
+      )
+      focus = (value || '').trim()
+    } catch { return /* 用户取消 */ }
+    designPanel.busy = true
+    try {
+      const res = await designApi.batchGenerateScenes(projectId, { count, focus })
+      if (res?.ok && res.created > 0) {
+        ElMessage.success(`已生成 ${res.created} 个新场景：${res.items.map((i) => i.name).join('、')}`)
+        await loadAll()
+      } else if (res?.ok) {
+        ElMessage.warning(res.message || 'AI 未返回有效场景')
+      }
+    } catch { /* 拦截器已提示 */ } finally {
+      designPanel.busy = false
+    }
+  }
+}
+
+const handleShotBatch = async (cmd: string) => {
+  if (cmd === 'enrich-entity') return enrichEntity()
+  if (cmd === 'enrich-all') {
+    designPanel.busy = true
+    try {
+      const res = await designApi.enrichShotsBatch(projectId)
+      if (res?.ok) {
+        ElMessage.success(
+          res.enriched > 0
+            ? `已补齐 ${res.enriched}/${res.total} 个分镜的空白字段${_formatFieldsSummary(res.fields)}。`
+            : '所有分镜字段已完整。'
+        )
+        await _refreshPanelData()
+      }
+    } catch { /* 拦截器已提示 */ } finally {
+      designPanel.busy = false
+    }
+  }
+}
+
 
 const genSceneImage = async () => {
   const sc = designPanel.scene
@@ -1647,8 +2200,10 @@ const confirmVideoGen = async () => {
   if (!n?.ref_id) return
   videoDialog.busy = true
   try {
+    // 让后端根据 shot_id 自动组装丰富 prompt
+    // （含分镜描述、构图、运镜、关联场景、角色外貌、项目风格）
     await tasksApi.generateVideo(projectId, {
-      prompt: n.title,
+      prompt: n.title, // 兜底：shot_code 或标题
       image_url: n.thumbnail_url,
       shot_id: n.ref_id,
     })
@@ -1703,7 +2258,6 @@ const pollTasks = async () => {
 onMounted(async () => {
   try {
     await loadAll()
-    videoModels.value = (await modelsApi.list({ model_type: 'video' }))
     if (nodes.value.length) fitView()
     pollTasks()
     pollTimer = setInterval(pollTasks, 4000)

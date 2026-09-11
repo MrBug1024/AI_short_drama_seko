@@ -60,31 +60,7 @@
                   上传剧本文件
                 </button>
               </el-upload>
-              <!-- 模型选择 -->
-              <el-popover placement="top-start" :width="320" trigger="click">
-                <template #reference>
-                  <button class="lbp-btn-ghost !rounded-full !py-1.5 text-sm">
-                    <el-icon :size="15"><Cpu /></el-icon>
-                    {{ selectedModelLabel }}
-                    <el-icon :size="12"><ArrowDown /></el-icon>
-                  </button>
-                </template>
-                <div class="space-y-1 max-h-72 overflow-y-auto">
-                  <div
-                    v-for="m in videoModels"
-                    :key="m.code"
-                    class="px-3 py-2 rounded-lg cursor-pointer hover:bg-ink-750 transition"
-                    :class="modelId === m.code && 'bg-ink-750'"
-                    @click="modelId = m.code"
-                  >
-                    <div class="text-sm text-slate-100 flex items-center gap-2">
-                      {{ m.name }}
-                      <span v-if="m.is_recommended" class="lbp-tag">推荐</span>
-                    </div>
-                    <div v-if="m.description" class="text-xs text-slate-500 mt-0.5 line-clamp-1">{{ m.description }}</div>
-                  </div>
-                </div>
-              </el-popover>
+              <!-- 模型选择已统一为后端 .env 配置（不再让用户选） -->
             </div>
 
             <button class="lbp-btn-primary !px-6" :disabled="creating || !canSubmit" @click="handleCreate">
@@ -223,11 +199,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Film, Connection, UploadFilled, Cpu, ArrowDown, Loading, VideoPlay,
+  Film, Connection, UploadFilled, Loading, VideoPlay,
   VideoCamera, User, Star, View, MagicStick, Picture, Headset, Promotion, Brush,
 } from '@element-plus/icons-vue'
-import { projectsApi, skillsApi, inspirationApi, modelsApi } from '@/api'
-import type { Inspiration, Skill, ModelCatalog } from '@/api/types'
+import { projectsApi, skillsApi, inspirationApi } from '@/api'
+import type { Inspiration, Skill } from '@/api/types'
 
 const router = useRouter()
 
@@ -236,19 +212,13 @@ const projectName = ref('')
 const scriptText = ref('')
 const mode = ref<string>('studio')
 const creating = ref(false)
-const modelId = ref('')
 
 const modeTabs = [
   { key: 'studio', label: '短片工作室', icon: Film },
   { key: 'canvas', label: '创作Agent·无限画布', icon: Connection },
 ]
 
-// 视频模型
-const videoModels = ref<ModelCatalog[]>([])
-const selectedModelLabel = computed(() => {
-  const m = videoModels.value.find((x) => x.code === modelId.value)
-  return m ? m.name : '选择模型'
-})
+// 视频模型已统一使用后端 .env 配置（默认 happyhorse-1.1-r2v / t2v），不在前端选择
 
 // 类型模板：点击直接填到剧本框（这是「AI 剧本扩写」思路：用户选题材 → AI 补一段短剧本；下面留口子）
 const categories = [
@@ -323,18 +293,12 @@ const handleCreate = async () => {
 
 // ============ 特色功能 ============
 const features = [
-  { title: 'Seedance2.5 视频生成', desc: '最新视频模型，多镜头叙事更连贯', icon: VideoPlay, badge: 'NEW', action: 'seedance' },
   { title: '第一视角催泪短片', desc: '编导李让 · 第一视角情感短片模板', icon: Film, action: 'template-tear' },
   { title: '山音编剧大师2.0', desc: 'LBP_M 独家 · 专业级剧本创作引擎', icon: MagicStick, badge: '独家', action: 'script-master' },
   { title: '出海剧转绘', desc: '中文剧本一键转制多语言出海短剧', icon: Promotion, action: 'translate' },
 ]
 
 const onFeatureClick = (f: { action: string; title: string }) => {
-  if (f.action === 'seedance') {
-    modelId.value = 'seedance-2.0'
-    ElMessage.success('已选择 Seedance 2.0 视频模型')
-    return
-  }
   // 其他模板：把素材填到剧本框，引导用户点「开始创作」
   if (f.action === 'template-tear') {
     projectName.value = '第一视角催泪短片'
@@ -383,18 +347,12 @@ const forkWork = async (w: Inspiration) => {
 
 onMounted(async () => {
   try {
-    const [workRes, skillRes, modelRes] = await Promise.all([
+    const [workRes, skillRes] = await Promise.all([
       inspirationApi.list({ limit: 12 }),
       skillsApi.list(),
-      modelsApi.list(),
     ])
     works.value = workRes.items
     skills.value = skillRes.slice(0, 8)
-    videoModels.value = modelRes.filter((m) => m.model_type === 'video')
-    if (videoModels.value.length) {
-      const rec = videoModels.value.find((m) => m.is_recommended)
-      modelId.value = (rec || videoModels.value[0]).code
-    }
   } catch {
     // 静默失败，保留空态
   }

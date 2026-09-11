@@ -290,6 +290,41 @@ export const designApi = {
     http.delete(`/relations/${relationId}`).then((r) => r.data),
   autoGenerateRelations: (projectId: number) =>
     http.post(`/projects/${projectId}/relations/auto-generate`).then((r) => r.data),
+
+  // AI 补充空白字段（不重写已有内容）
+  enrichCharacter: (characterId: number) =>
+    http.post(`/characters/${characterId}/enrich`).then((r) => r.data),
+  enrichScene: (sceneId: number) =>
+    http.post(`/scenes/${sceneId}/enrich`).then((r) => r.data),
+  enrichShot: (shotId: number) =>
+    http.post(`/shots/${shotId}/enrich`).then((r) => r.data),
+  // 项目级别：兜底扫描所有空白字段
+  enrichProject: (projectId: number) =>
+    http.post<{ ok: boolean; enriched: { characters: number; scenes: number; shots: number } }>(`/projects/${projectId}/enrich-all`).then((r) => r.data),
+
+  // 修复孤儿 shot 的 scene_id / character_ids 关联
+  repairShotRelations: (projectId: number) =>
+    http.post<{ scanned: number; orphans: number; fixed_scene: number; fixed_characters: number; details: any[] }>(
+      `/projects/${projectId}/canvas/repair-shot-relations`
+    ).then((r) => r.data),
+
+  // ============== 批量补全空白字段 ==============
+  enrichCharactersBatch: (projectId: number) =>
+    http.post<{ ok: boolean; enriched: number; total: number; fields: Record<string, number> }>(`/projects/${projectId}/enrich-characters`).then((r) => r.data),
+  enrichScenesBatch: (projectId: number) =>
+    http.post<{ ok: boolean; enriched: number; total: number; fields: Record<string, number> }>(`/projects/${projectId}/enrich-scenes`).then((r) => r.data),
+  enrichShotsBatch: (projectId: number) =>
+    http.post<{ ok: boolean; enriched: number; total: number; fields: Record<string, number> }>(`/projects/${projectId}/enrich-shots`).then((r) => r.data),
+
+  // ============== 批量生成新角色/新场景 ==============
+  batchGenerateCharacters: (projectId: number, body: { count?: number; focus?: string } = {}) =>
+    http.post<{ ok: boolean; created: number; items: Array<{ id: number; name: string; age: number; gender: string; role: string; alias: string }> }>(
+      `/projects/${projectId}/batch-generate-characters`, body
+    ).then((r) => r.data),
+  batchGenerateScenes: (projectId: number, body: { count?: number; focus?: string } = {}) =>
+    http.post<{ ok: boolean; created: number; items: Array<{ id: number; name: string; location: string; time_of_day: string; weather: string }> }>(
+      `/projects/${projectId}/batch-generate-scenes`, body
+    ).then((r) => r.data),
 }
 
 // ============================================================

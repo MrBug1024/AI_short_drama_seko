@@ -167,6 +167,9 @@ class CreationService:
         task: GenerationTask,
     ):
         """把 AI 生成的结构化数据落库（幂等：先清空旧实体，避免重复创作产生重复数据）"""
+        # 兜底：写入完成后调用 enrich 补齐可能被 LLM 忽略的空白字段
+        # 仅在主流程结束后异步处理，不阻塞主流程返回
+        self._need_enrich_after_commit = True
         # 0. 清空旧实体与旧画布（连线 → 节点 → 分镜 → 场景 → 角色 → 道具）
         # 重要：剧本作为脚本保留，不再删除。AI 重新生成会写入新版本 v+1，旧版本可回滚。
         await db.execute(delete(CanvasEdge).where(CanvasEdge.project_id == project.id))
@@ -308,6 +311,14 @@ class CreationService:
             db.add(shot)
 
         await db.commit()
+
+        # 写入后为 LLM 漏填的字段调一次 enrich（异步，不阻塞当前流程）
+        try:
+            from app.services.entity_enrichment import enrich_project_entities
+            await enrich_project_entities(db, project.id, data.get("script_text") or data.get("raw_script", ""))
+        except Exception as e:
+            import logging
+            logging.warning(f"[enrich] 自动补充空白字段失败：{e}")
 
     def _format_script_md(self, data: Dict[str, Any]) -> str:
         """格式化为 Markdown 剧本"""

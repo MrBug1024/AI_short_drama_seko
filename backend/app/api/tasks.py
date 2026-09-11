@@ -1,5 +1,5 @@
 """生成任务队列 API"""
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy import select, desc, func
@@ -244,19 +244,52 @@ async def enqueue_image_generation(
 @router.post("/projects/{project_id}/generation/video")
 async def enqueue_video_generation(
     project_id: int,
-    prompt: str,
+    prompt: str = "",
     image_url: str = "",
     duration: int = 5,
     shot_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """提交视频生成任务（异步，返回 task_id）"""
+    """提交视频生成任务（异步，返回 task_id）
+
+    自动组装丰富 prompt：
+    - 如果传了 shot_id：根据分镜 description/composition/运镜 + 关联场景 + 角色外貌 + 项目风格
+      生成多段式画面描述，远比前端传的短 title 准确
+    - 没传 shot_id：使用原始 prompt（兜底）
+    """
+    from app.services.video_prompt_builder import build_shot_video_prompt
+
+    final_prompt = (prompt or "").strip()
+    shot_meta: Dict[str, Any] = {}
+
+    if shot_id:
+        rich_prompt, shot_meta = await build_shot_video_prompt(
+            db, project_id, shot_id, fallback_title=prompt or ""
+        )
+        # 优先用丰富 prompt；如果用户给的 prompt 比自动的还长且不像 shot_code，保留它作为补充
+        if rich_prompt and len(rich_prompt) > len(final_prompt):
+            final_prompt = rich_prompt
+        # 从 shot 自动取 image_url（如果前端没传）
+        if not image_url:
+            shot_row = (await db.execute(
+                select(Shot).where(Shot.id == shot_id, Shot.project_id == project_id)
+            )).scalar_one_or_none()
+            if shot_row:
+                image_url = shot_row.image_url or ""
+                if not duration or duration == 5:
+                    duration = int(shot_row.duration_sec or 5)
+
     task = GenerationTask(
         project_id=project_id,
         task_type="video",
         shot_id=shot_id,
-        prompt=prompt,
-        params={"image_url": image_url, "duration": duration},
+        prompt=final_prompt,
+        params={
+            "image_url": image_url,
+            "duration": duration,
+            "raw_prompt": prompt,
+            **shot_meta,
+        },
         status="running",
         progress=10,
         phase="视频生成",
@@ -265,7 +298,7 @@ async def enqueue_video_generation(
     await db.commit()
     await db.refresh(task)
 
-    result = await ai_gateway.generate_video(prompt, image_url, duration)
+    result = await ai_gateway.generate_video(final_prompt, image_url, duration)
     task.external_task_id = result.get("task_id", "")
     task.model_name = result.get("model", "")
 

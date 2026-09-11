@@ -240,6 +240,31 @@ class AIGateway:
         return base
 
     @staticmethod
+    def _resolve_video_model(v_model: str, has_image: bool) -> str:
+        """根据 .env 配的视频模型和是否有参考图，自动派生可用的子模型。
+
+        设计原则：用户只关心 .env 里配置的 VIDEO_MODEL，后端负责兼容性。
+        - happyhorse-1.1-r2v（参考生视频）：有 image → 用 r2v；无 image → 自动降级为 t2v
+        - happyhorse-1.1-i2v（图生视频）：有 image → 用 i2v；无 image → 自动降级为 t2v
+        - happyhorse-1.1-t2v：始终用 t2v
+        - 其他模型：原样使用（依赖服务端是否支持）
+        """
+        m = (v_model or "").lower().strip()
+        if not m:
+            return m
+        # 已经是显式的 t2v：跳过
+        if m.endswith("-t2v") or "-t2v-" in m:
+            return v_model
+        # r2v / i2v：没图时降级为 t2v
+        if not has_image:
+            if "r2v" in m or "i2v" in m or "kf2v" in m:
+                # happyhorse-1.1-r2v → happyhorse-1.1-t2v
+                t2v_name = v_model.replace("-r2v", "-t2v").replace("-i2v", "-t2v").replace("-kf2v", "-t2v")
+                logger.info(f"视频生成无参考图，自动降级 {v_model} → {t2v_name}")
+                return t2v_name
+        return v_model
+
+    @staticmethod
     def _build_video_input(v_model: str, prompt: str, image_url: str) -> Dict[str, Any]:
         """按模型类型构造 DashScope 原生 input 字段
 
@@ -276,6 +301,8 @@ class AIGateway:
             return self._mock_video_response(prompt)
 
         v_model = model or settings.VIDEO_MODEL
+        # 自动根据是否有参考图，派生正确的子模型（避免 r2v 无图调用失败）
+        v_model = self._resolve_video_model(v_model, has_image=bool(image_url))
         native_base = self._dashscope_native_base()
         url = f"{native_base}/services/aigc/video-generation/video-synthesis"
         headers = {

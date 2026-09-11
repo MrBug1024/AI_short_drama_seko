@@ -114,3 +114,21 @@ html.dark {
 .cv-video-dialog video {
   background: #000;
 }
+
+/* 设计面板：空白字段红框提示（与 LBP_M 警告主题色一致） */
+.is-empty .el-input__wrapper,
+.is-empty .el-textarea__inner,
+.is-empty .el-select__wrapper {
+  box-shadow: 0 0 0 1px rgb(251 146 60 / 0.6) inset !important;
+  background-color: rgb(251 146 60 / 0.06) !important;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.is-empty .el-input__wrapper:hover,
+.is-empty .el-textarea__inner:hover,
+.is-empty .el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px rgb(251 146 60 / 0.9) inset !important;
+}
+.is-empty .el-input__inner::placeholder,
+.is-empty .el-textarea__inner::placeholder {
+  color: rgb(251 146 60 / 0.65) !important;
+}

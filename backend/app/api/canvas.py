@@ -159,3 +159,15 @@ async def delete_edge(eid: int, db: AsyncSession = Depends(get_db)):
     await db.delete(edge)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/projects/{project_id}/canvas/repair-shot-relations")
+async def repair_shot_relations(project_id: int, db: AsyncSession = Depends(get_db)):
+    """批量修复孤儿 shot（scene_id=None 或 character_ids=[]）的关联关系
+
+    用于 AI 返回字段缺失、apply-to-canvas 旧版本等历史问题。
+    """
+    from app.services.shot_repair import repair_project_shots
+
+    result = await repair_project_shots(db, project_id=project_id)
+    return result

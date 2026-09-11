@@ -854,3 +854,477 @@ async def auto_generate_relations(project_id: int, db: AsyncSession = Depends(ge
         created.append(r)
     await db.commit()
     return {"ok": True, "count": len(created), "relations": created}
+
+
+# ============== AI 补充空白字段（不重写已有内容） ==============
+
+async def _script_ctx_for(db: AsyncSession, project_id: int):
+    """取项目最新剧本的上下文（文本+梗概）"""
+    script = (await db.execute(
+        select(Script).where(Script.project_id == project_id).order_by(Script.version.desc())
+    )).scalars().first()
+    return (script.content if script else "") or "", (script.logline if script else "") or ""
+
+
+@router.post("/characters/{cid}/enrich")
+async def enrich_character_endpoint(cid: int, db: AsyncSession = Depends(get_db)):
+    """AI 补充单角色的空白字段（appearance/outfit/personality/backstory/alias）。
+
+    不重写已有内容，仅填充空字段。
+    """
+    ch = (await db.execute(select(Character).where(Character.id == cid))).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(404, "角色不存在")
+    from app.services.entity_enrichment import entity_enrichment as _enrich
+    script_text, logline = await _script_ctx_for(db, ch.project_id)
+    before = dict(
+        appearance=ch.appearance, outfit=ch.outfit,
+        personality=ch.personality, backstory=ch.backstory, alias=ch.alias,
+    )
+    await _enrich["enrich_character"](db, ch, script_text, logline)
+    await db.refresh(ch)
+    after = dict(
+        appearance=ch.appearance, outfit=ch.outfit,
+        personality=ch.personality, backstory=ch.backstory, alias=ch.alias,
+    )
+    filled = [k for k in before if not (before[k] or "").strip() and (after[k] or "").strip()]
+    return {"ok": True, "filled": filled, "character": {
+        "id": ch.id, "name": ch.name, "alias": ch.alias, "age": ch.age, "gender": ch.gender,
+        "role": ch.role, "appearance": ch.appearance, "outfit": ch.outfit,
+        "personality": ch.personality, "backstory": ch.backstory,
+    }}
+
+
+@router.post("/scenes/{sid}/enrich")
+async def enrich_scene_endpoint(sid: int, db: AsyncSession = Depends(get_db)):
+    """AI 补充单场景的空白字段。"""
+    sc = (await db.execute(select(Scene).where(Scene.id == sid))).scalar_one_or_none()
+    if not sc:
+        raise HTTPException(404, "场景不存在")
+    from app.services.entity_enrichment import entity_enrichment as _enrich
+    script_text, logline = await _script_ctx_for(db, sc.project_id)
+    before = dict(
+        location=sc.location, time_of_day=sc.time_of_day, weather=sc.weather,
+        mood=sc.mood, description=sc.description, visual_prompt=sc.visual_prompt,
+    )
+    await _enrich["enrich_scene"](db, sc, script_text, logline)
+    await db.refresh(sc)
+    after = dict(
+        location=sc.location, time_of_day=sc.time_of_day, weather=sc.weather,
+        mood=sc.mood, description=sc.description, visual_prompt=sc.visual_prompt,
+    )
+    filled = [k for k in before if not (before[k] or "").strip() and (after[k] or "").strip()]
+    return {"ok": True, "filled": filled, "scene": {
+        "id": sc.id, "name": sc.name, "location": sc.location, "time_of_day": sc.time_of_day,
+        "weather": sc.weather, "mood": sc.mood, "description": sc.description,
+        "visual_prompt": sc.visual_prompt,
+    }}
+
+
+@router.post("/shots/{sid}/enrich")
+async def enrich_shot_endpoint(sid: int, db: AsyncSession = Depends(get_db)):
+    """AI 补充单分镜的空白字段。"""
+    sh = (await db.execute(select(Shot).where(Shot.id == sid))).scalar_one_or_none()
+    if not sh:
+        raise HTTPException(404, "分镜不存在")
+    from app.services.entity_enrichment import entity_enrichment as _enrich
+    proj = (await db.execute(select(Project).where(Project.id == sh.project_id))).scalar_one_or_none()
+    art_style = proj.art_style if proj else ""
+    script_text, logline = await _script_ctx_for(db, sh.project_id)
+    before = dict(
+        composition=sh.composition, camera_movement=sh.camera_movement,
+        camera_angle=sh.camera_angle, dialogue=sh.dialogue, narration=sh.narration,
+        visual_prompt=sh.visual_prompt,
+    )
+    await _enrich["enrich_shot"](db, sh, script_text, logline, art_style)
+    await db.refresh(sh)
+    after = dict(
+        composition=sh.composition, camera_movement=sh.camera_movement,
+        camera_angle=sh.camera_angle, dialogue=sh.dialogue, narration=sh.narration,
+        visual_prompt=sh.visual_prompt,
+    )
+    filled = [k for k in before if not (before[k] or "").strip() and (after[k] or "").strip()]
+    return {"ok": True, "filled": filled, "shot": {
+        "id": sh.id, "shot_code": sh.shot_code, "description": sh.description,
+        "composition": sh.composition, "camera_movement": sh.camera_movement,
+        "camera_angle": sh.camera_angle, "dialogue": sh.dialogue, "narration": sh.narration,
+        "duration_sec": sh.duration_sec, "visual_prompt": sh.visual_prompt,
+    }}
+
+
+@router.post("/projects/{project_id}/enrich-all")
+async def enrich_project_endpoint(project_id: int, db: AsyncSession = Depends(get_db)):
+    """项目级兜底扫描：逐个 AI 补充所有空白字段。
+
+    用于：用户升级画风、剧本优化后统一对齐、初始化后补救。
+    可能耗时（取决于实体数量 × LLM 响应时间）。
+    """
+    proj = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    from app.services.entity_enrichment import entity_enrichment as _enrich
+    enriched = await _enrich["enrich_project_entities"](db, project_id)
+    total = enriched["characters"] + enriched["scenes"] + enriched["shots"]
+    return {"ok": True, "enriched": enriched, "total": total}
+
+
+# ============== 批量补全端点 ==============
+
+@router.post("/projects/{project_id}/enrich-characters")
+async def enrich_characters_batch(project_id: int, db: AsyncSession = Depends(get_db)):
+    """批量补全项目所有角色的空白字段。"""
+    proj = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    from app.services.entity_enrichment import entity_enrichment as _enrich
+    from app.services.entity_enrichment import CHARACTER_FIELDS, _missing_fields
+
+    # 取最新剧本
+    script = (await db.execute(
+        select(Script).where(Script.project_id == project_id).order_by(Script.version.desc())
+    )).scalars().first()
+    script_text = (script.content if script else "") or ""
+    script_logline = (script.logline if script else "") or ""
+
+    chars = list((await db.execute(
+        select(Character).where(Character.project_id == project_id)
+    )).scalars().all())
+
+    enriched = 0
+    fields_summary: Dict[str, int] = {}
+    for ch in chars:
+        missing = _missing_fields(ch, CHARACTER_FIELDS)
+        if not missing:
+            continue
+        before = set(_missing_fields(ch, CHARACTER_FIELDS))
+        await _enrich["enrich_character"](db, ch, script_text, script_logline)
+        await db.refresh(ch)
+        after = set(_missing_fields(ch, CHARACTER_FIELDS))
+        filled = before - after
+        if filled:
+            enriched += 1
+            for f in filled:
+                fields_summary[f] = fields_summary.get(f, 0) + 1
+    return {"ok": True, "enriched": enriched, "total": len(chars), "fields": fields_summary}
+
+
+@router.post("/projects/{project_id}/enrich-scenes")
+async def enrich_scenes_batch(project_id: int, db: AsyncSession = Depends(get_db)):
+    """批量补全项目所有场景的空白字段。"""
+    proj = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    from app.services.entity_enrichment import entity_enrichment as _enrich
+    from app.services.entity_enrichment import SCENE_FIELDS, _missing_fields
+
+    script = (await db.execute(
+        select(Script).where(Script.project_id == project_id).order_by(Script.version.desc())
+    )).scalars().first()
+    script_text = (script.content if script else "") or ""
+    script_logline = (script.logline if script else "") or ""
+
+    scenes = list((await db.execute(
+        select(Scene).where(Scene.project_id == project_id)
+    )).scalars().all())
+
+    enriched = 0
+    fields_summary: Dict[str, int] = {}
+    for sc in scenes:
+        missing = _missing_fields(sc, SCENE_FIELDS)
+        if not missing:
+            continue
+        before = set(_missing_fields(sc, SCENE_FIELDS))
+        await _enrich["enrich_scene"](db, sc, script_text, script_logline)
+        await db.refresh(sc)
+        after = set(_missing_fields(sc, SCENE_FIELDS))
+        filled = before - after
+        if filled:
+            enriched += 1
+            for f in filled:
+                fields_summary[f] = fields_summary.get(f, 0) + 1
+    return {"ok": True, "enriched": enriched, "total": len(scenes), "fields": fields_summary}
+
+
+@router.post("/projects/{project_id}/enrich-shots")
+async def enrich_shots_batch(project_id: int, db: AsyncSession = Depends(get_db)):
+    """批量补全项目所有分镜的空白字段。"""
+    proj = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    from app.services.entity_enrichment import entity_enrichment as _enrich
+    from app.services.entity_enrichment import SHOT_FIELDS, _missing_fields
+
+    script = (await db.execute(
+        select(Script).where(Script.project_id == project_id).order_by(Script.version.desc())
+    )).scalars().first()
+    script_text = (script.content if script else "") or ""
+    script_logline = (script.logline if script else "") or ""
+    art_style = proj.art_style or ""
+
+    shots = list((await db.execute(
+        select(Shot).where(Shot.project_id == project_id)
+    )).scalars().all())
+
+    enriched = 0
+    fields_summary: Dict[str, int] = {}
+    for sh in shots:
+        missing = _missing_fields(sh, SHOT_FIELDS)
+        if not missing:
+            continue
+        before = set(_missing_fields(sh, SHOT_FIELDS))
+        await _enrich["enrich_shot"](db, sh, script_text, script_logline, art_style)
+        await db.refresh(sh)
+        after = set(_missing_fields(sh, SHOT_FIELDS))
+        filled = before - after
+        if filled:
+            enriched += 1
+            for f in filled:
+                fields_summary[f] = fields_summary.get(f, 0) + 1
+    return {"ok": True, "enriched": enriched, "total": len(shots), "fields": fields_summary}
+
+
+# ============== 批量生成（数量参数） ==============
+
+@router.post("/projects/{project_id}/batch-generate-characters")
+async def batch_generate_characters(
+    project_id: int,
+    body: Dict[str, Any] = {},
+    db: AsyncSession = Depends(get_db),
+):
+    """批量生成角色（按剧本上下文推断并创建 N 个新角色）。
+
+    body: {count?: int=3, focus?: str=''}
+    - count: 要生成的角色数量，默认 3
+    - focus: 可选的创作方向（如「家庭成员」「职场同事」）
+    """
+    proj = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+
+    count = max(1, min(int(body.get("count", 3)), 10))
+    focus = str(body.get("focus") or "").strip()
+
+    # 取最新剧本
+    script = (await db.execute(
+        select(Script).where(Script.project_id == project_id).order_by(Script.version.desc())
+    )).scalars().first()
+    script_text = (script.content if script else "") or ""
+    script_logline = (script.logline if script else "") or ""
+
+    # 已存在的角色名（避免重名）
+    existing = list((await db.execute(
+        select(Character).where(Character.project_id == project_id)
+    )).scalars().all())
+    existing_names = [c.name for c in existing if c.name]
+
+    system = (
+        "你是专业角色设计师。基于剧本上下文，生成符合剧情且与现有角色不重名的新角色。\n"
+        "输出 JSON：{\"characters\": [Character, ...]}\n"
+        "Character 字段：name(必填), alias, age(1-150 正整数), gender(男/女), "
+        "role(主角/配角/反派/路人), appearance, outfit, personality, backstory\n"
+        "要求：\n"
+        "1. age 必须是 1-150 之间的正整数\n"
+        "2. 名字、性格、外貌、背景与剧本逻辑强相关\n"
+        "3. appearance 必须是可直接生图的具体视觉描述（发型发色/脸型/五官/体型/标志性特征）\n"
+        "4. 字符串内禁止英文双引号 \" 和反斜杠 \\，需要引用时用中文「」\n"
+        "5. 只输出合法 JSON\n"
+    )
+    user_payload = {
+        "logline": script_logline,
+        "script_snippet": script_text[:3000],
+        "existing_character_names": existing_names,
+        "focus": focus or "无特别要求",
+        "count": count,
+    }
+    user = f"生成 {count} 个新角色：\n{json.dumps(user_payload, ensure_ascii=False, indent=2)}\n请只返回 JSON。"
+
+    try:
+        result = await ai_gateway.chat(
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            json_mode=True,
+            temperature=0.85,
+        )
+    except Exception as e:
+        logger.error(f"批量生成角色 LLM 失败: {e}")
+        raise HTTPException(500, f"AI 调用失败: {e}")
+
+    data = await _parse_json((result or {}).get("content", ""))
+    new_chars = data.get("characters") or []
+    if not isinstance(new_chars, list) or not new_chars:
+        return {"ok": False, "created": 0, "items": [], "message": "AI 未返回有效角色"}
+
+    created = []
+    for item in new_chars[:count]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name or name in existing_names:
+            continue
+        existing_names.append(name)
+        ch = Character(
+            project_id=project_id,
+            name=name,
+            alias=str(item.get("alias", "")).strip()[:200],
+            age=_coerce_int(item.get("age", 0)) or 0,
+            gender=_norm_gender(item.get("gender", "")),
+            role=_norm_role(item.get("role", "配角")),
+            appearance=str(item.get("appearance", "")).strip(),
+            outfit=str(item.get("outfit", "")).strip(),
+            personality=str(item.get("personality", "")).strip(),
+            backstory=str(item.get("backstory", "")).strip(),
+        )
+        # age 兜底为 0 时尝试根据角色名/role 推个合理值
+        if not ch.age or ch.age < 1:
+            ch.age = 30  # 兜底
+        db.add(ch)
+        created.append(ch)
+    if created:
+        await db.commit()
+        for c in created:
+            await db.refresh(c)
+    return {
+        "ok": True,
+        "created": len(created),
+        "items": [
+            {
+                "id": c.id, "name": c.name, "age": c.age, "gender": c.gender,
+                "role": c.role, "alias": c.alias,
+            } for c in created
+        ],
+    }
+
+
+@router.post("/projects/{project_id}/batch-generate-scenes")
+async def batch_generate_scenes(
+    project_id: int,
+    body: Dict[str, Any] = {},
+    db: AsyncSession = Depends(get_db),
+):
+    """批量生成场景（按剧本上下文推断并创建 N 个新场景）。
+
+    body: {count?: int=3, focus?: str=''}
+    """
+    proj = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+
+    count = max(1, min(int(body.get("count", 3)), 10))
+    focus = str(body.get("focus") or "").strip()
+
+    script = (await db.execute(
+        select(Script).where(Script.project_id == project_id).order_by(Script.version.desc())
+    )).scalars().first()
+    script_text = (script.content if script else "") or ""
+    script_logline = (script.logline if script else "") or ""
+
+    existing = list((await db.execute(
+        select(Scene).where(Scene.project_id == project_id)
+    )).scalars().all())
+    existing_names = [s.name for s in existing if s.name]
+
+    system = (
+        "你是专业场景概念设计师。基于剧本上下文，生成符合剧情且与现有场景不重名的新场景。\n"
+        "输出 JSON：{\"scenes\": [Scene, ...]}\n"
+        "Scene 字段：name(必填), location, time_of_day(day/night/dawn/dusk), weather, "
+        "mood, description(空间布局/关键物件/光线来源/色彩基调), visual_prompt(可直接生图)\n"
+        "要求：\n"
+        "1. 场景必须服务于剧情\n"
+        "2. description 与 visual_prompt 都要详细、可直接生图\n"
+        "3. 字符串内禁止英文双引号 \" 和反斜杠 \\，需要引用时用中文「」\n"
+        "4. 只输出合法 JSON\n"
+    )
+    user_payload = {
+        "logline": script_logline,
+        "script_snippet": script_text[:3000],
+        "existing_scene_names": existing_names,
+        "focus": focus or "无特别要求",
+        "count": count,
+    }
+    user = f"生成 {count} 个新场景：\n{json.dumps(user_payload, ensure_ascii=False, indent=2)}\n请只返回 JSON。"
+
+    try:
+        result = await ai_gateway.chat(
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            json_mode=True,
+            temperature=0.85,
+        )
+    except Exception as e:
+        logger.error(f"批量生成场景 LLM 失败: {e}")
+        raise HTTPException(500, f"AI 调用失败: {e}")
+
+    data = await _parse_json((result or {}).get("content", ""))
+    new_scenes = data.get("scenes") or []
+    if not isinstance(new_scenes, list) or not new_scenes:
+        return {"ok": False, "created": 0, "items": [], "message": "AI 未返回有效场景"}
+
+    created = []
+    for item in new_scenes[:count]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name or name in existing_names:
+            continue
+        existing_names.append(name)
+        sc = Scene(
+            project_id=project_id,
+            name=name,
+            location=str(item.get("location", "")).strip(),
+            time_of_day=str(item.get("time_of_day", "")).strip(),
+            weather=str(item.get("weather", "")).strip(),
+            mood=str(item.get("mood", "")).strip(),
+            description=str(item.get("description", "")).strip(),
+            visual_prompt=str(item.get("visual_prompt", "")).strip() or str(item.get("description", "")).strip(),
+        )
+        db.add(sc)
+        created.append(sc)
+    if created:
+        await db.commit()
+        for s in created:
+            await db.refresh(s)
+    return {
+        "ok": True,
+        "created": len(created),
+        "items": [
+            {
+                "id": s.id, "name": s.name, "location": s.location,
+                "time_of_day": s.time_of_day, "weather": s.weather,
+            } for s in created
+        ],
+    }
+
+
+# ============== 工具函数 ==============
+
+def _coerce_int(v: Any) -> Optional[int]:
+    """安全地把任意值转 int，失败或 0/负数/超范围返回 None"""
+    try:
+        n = int(v)
+    except Exception:
+        return None
+    if n < 1 or n > 150:
+        return None
+    return n
+
+
+def _norm_gender(v: Any) -> str:
+    """规范化 gender 字段"""
+    g = str(v or "").strip()
+    if g.lower() in ("male", "m"):
+        return "男"
+    if g.lower() in ("female", "f"):
+        return "女"
+    if g in ("男", "女", "其他"):
+        return g
+    return ""
+
+
+def _norm_role(v: Any) -> str:
+    """规范化 role 字段"""
+    r = str(v or "").strip()
+    mapping = {
+        "protagonist": "主角", "supporting": "配角",
+        "antagonist": "反派", "extra": "路人",
+    }
+    return mapping.get(r.lower(), r) if r else "配角"

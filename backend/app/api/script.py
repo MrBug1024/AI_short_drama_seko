@@ -7,7 +7,7 @@
 """
 import json
 import re
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
@@ -48,31 +48,70 @@ PARSE_SCRIPT_PROMPT = """你是一个专业的剧本解析 Agent，能识别三�
 2. **剧情剧本**：标准剧本格式（场景+角色+台词+动作）
 3. **分镜表**：以 SC01/SC02/SC03 编号开头的分镜表
 
-请将输入解析为 JSON：
+请将输入解析为完整 JSON。所有字段必须填写，禁止空字符串或空数组（除 relations 外）。
+如果原剧本没有该字段信息，请根据剧情合理推断补充，确保下游生图/生视频有足够上下文。
+
 {
     "format": "narration|drama|storyboard",
     "title": "剧名",
-    "logline": "一句话故事",
-    "characters": [{"name": "角色", "role": "主角/配角"}],
-    "scenes": [{"name": "场景", "location": "地点", "time": "时间"}],
-    "props": [{"name": "道具", "category": "类别"}],
+    "logline": "一句话故事（不超过 50 字）",
+    "art_style": "美术风格描述（电影质感/中国风/赛博朋克/3D 渲染 等）",
+    "characters": [
+        {
+            "name": "角色名",
+            "alias": "别名/化名",
+            "age": 30,
+            "gender": "男/女",
+            "role": "主角/配角/反派",
+            "appearance": "具体可直接生图的外貌描述（发型发色/脸型/五官/体型/标志性特征，禁止抽象词）",
+            "outfit": "具体到款式+颜色的服装",
+            "personality": "性格（3-5 个关键词或一句描述）",
+            "backstory": "背景故事（50 字内，说明与剧情冲突相关的关键经历）"
+        }
+    ],
+    "scenes": [
+        {
+            "name": "场景名",
+            "location": "具体地点（如：北京·深夜写字楼/村口·老槐树下）",
+            "time_of_day": "day/night/dawn/dusk",
+            "weather": "晴/雨/雪/阴/雾",
+            "mood": "氛围关键词（如：压抑/温馨/紧张/诡异）",
+            "description": "场景描述（空间布局+关键物件+光线来源+色彩基调）",
+            "visual_prompt": "可直接生图的视觉描述（构图+前景中景背景+光线+色调）"
+        }
+    ],
+    "props": [
+        {"name": "道具名", "category": "类别（武器/证件/食物/工具/装饰等）", "description": "道具描述"}
+    ],
     "shots": [
         {
             "shot_code": "SC01",
-            "description": "画面描述",
-            "camera": "运镜方式",
-            "dialogue": "台词（若有）",
-            "narration": "旁白（若有）",
-            "duration_sec": 5
+            "description": "画面描述（明确谁在做什么）",
+            "composition": "构图（九宫格/中心/对称/三分法/对角线 等）",
+            "camera_movement": "运镜（推/拉/摇/移/跟/固定/升/降/环绕/手持）",
+            "camera_angle": "角度+景别（如：俯视中景/平视特写）",
+            "dialogue": "台词（无台词留空字符串）",
+            "narration": "旁白（无旁白留空字符串）",
+            "duration_sec": 5,
+            "scene_name": "该镜头所在场景名（必须与 scenes 列表中的 name 一致）",
+            "character_names": ["出场角色名列表（必须与 characters 列表中的 name 一致）"],
+            "visual_prompt": "可直接生图的画面描述（包含角色外貌特征+动作+环境+镜头语言）"
         }
+    ],
+    "relations": [
+        {"from": "角色A名", "to": "角色B名", "type": "关系类型（恋人/夫妻/亲子/朋友/同事/对手/仇人/陌生人 等）", "description": "关系描述与戏剧张力"}
     ]
 }
 
 严格要求：
-1. 只输出合法 JSON，不要任何 markdown 标记
-2. 镜头时长 3-8 秒
-3. 中文输出
-4. 保持原剧本的剧情和节奏，不要增删内容
+1. 只输出合法 JSON，不要任何 markdown 标记（不要 ```json 围栏）
+2. 中文输出（人名、地名、画风、描述全部中文）
+3. 字符串值内禁止使用英文双引号 " 和反斜杠 \\，需要引用时用中文引号「」
+4. 镜头时长 3-8 秒
+5. 保持原剧本的剧情和节奏，不要增删主要情节
+6. **所有可见字段都不能为空**：如果剧本里没有提到角色外貌/服装/性格，必须根据剧情合理推断
+7. **每个 shot 必须能映射到 scene_name**：找不到时填最相关的场景名
+8. **每个 shot 的 character_names 必须从 character 列表中选**，未出场的留空数组
 """
 
 
@@ -178,12 +217,15 @@ async def create_project_with_script(
     db.add(script)
     await db.flush()
 
-    # 5) 角色 / 场景 / 道具 / 分镜
+    # 5) 角色 / 场景 / 道具 / 分镜（写入完整字段，不丢任何下游需要的上下文）
     char_map = {}
     for c in data.get("characters", []):
         character = Character(
             project_id=project_id,
             name=c.get("name", ""),
+            alias=c.get("alias", ""),
+            age=int(c.get("age") or 0),
+            gender=c.get("gender", ""),
             role=c.get("role", ""),
             appearance=c.get("appearance", ""),
             outfit=c.get("outfit", ""),
@@ -200,13 +242,24 @@ async def create_project_with_script(
             project_id=project_id,
             name=s.get("name", ""),
             location=s.get("location", ""),
-            time_of_day=s.get("time", "day"),
+            time_of_day=s.get("time_of_day", s.get("time", "day")),
+            weather=s.get("weather", ""),
+            mood=s.get("mood", ""),
             description=s.get("description", ""),
             visual_prompt=s.get("visual_prompt", s.get("description", "")),
         )
         db.add(scene)
         await db.flush()
         scene_map[s.get("name", "")] = scene.id
+
+    # 别名/角色名都能映射到 id（分镜里的 character_names 可以用别名）
+    char_by_name = {}
+    for c in data.get("characters", []):
+        cid = char_map.get(c.get("name", ""))
+        if cid:
+            char_by_name[c.get("name", "")] = cid
+            if c.get("alias"):
+                char_by_name[c.get("alias")] = cid
 
     for p in data.get("props", []):
         prop = Prop(
@@ -218,19 +271,82 @@ async def create_project_with_script(
         db.add(prop)
 
     for idx, sh in enumerate(data.get("shots", []), 1):
+        # 场景引用：优先 scene_name 字段，其次按描述模糊匹配
+        scene_id = scene_map.get(sh.get("scene_name", ""))
+        if not scene_id:
+            desc = sh.get("description", "")
+            for name, sid in scene_map.items():
+                if name and name in desc:
+                    scene_id = sid
+                    break
+        # 兜底：轮流分配场景，保证每个分镜都有场景连线
+        if not scene_id and scene_map:
+            scene_id = list(scene_map.values())[(idx - 1) % len(scene_map)]
+
+        # 角色引用：优先 character_names 字段，其次按描述/台词匹配角色名或别名
+        char_ids = [char_by_name[n] for n in sh.get("character_names", []) if n in char_by_name]
+        if not char_ids:
+            text = sh.get("description", "") + sh.get("dialogue", "")
+            char_ids = [cid for name, cid in char_by_name.items() if name and name in text]
+        # 兜底：至少关联一个角色，保证画布有连线
+        if not char_ids and char_by_name:
+            char_ids = [list(char_by_name.values())[(idx - 1) % len(char_by_name)]]
+
         shot = Shot(
             project_id=project_id,
             shot_no=idx,
             shot_code=sh.get("shot_code", f"SC{idx:02d}"),
             description=sh.get("description", ""),
-            camera_movement=sh.get("camera", ""),
+            composition=sh.get("composition", ""),
+            camera_movement=sh.get("camera_movement", "") or sh.get("camera", ""),
+            camera_angle=sh.get("camera_angle", ""),
+            character_ids=char_ids,
+            scene_id=scene_id,
             dialogue=sh.get("dialogue", ""),
             narration=sh.get("narration", ""),
             duration_sec=sh.get("duration_sec", 5),
-            visual_prompt=sh.get("description", ""),
+            visual_prompt=sh.get("visual_prompt", sh.get("description", "")),
         )
         db.add(shot)
     await db.flush()
+
+    # 5.5 角色关系（顺手建好，画布可连线）
+    from app.models.character import CharacterRelation as _CharRel
+    for r in data.get("relations", []):
+        fid = char_by_name.get(r.get("from", ""))
+        tid = char_by_name.get(r.get("to", ""))
+        if not fid or not tid or fid == tid:
+            continue
+        # 避免重复
+        exists = (await db.execute(
+            select(_CharRel).where(
+                _CharRel.project_id == project_id,
+                _CharRel.from_character_id == fid,
+                _CharRel.to_character_id == tid,
+            )
+        )).scalar_one_or_none()
+        if exists:
+            continue
+        db.add(_CharRel(
+            project_id=project_id,
+            from_character_id=fid,
+            to_character_id=tid,
+            relation_type=r.get("type", ""),
+            description=r.get("description", ""),
+        ))
+    await db.flush()
+
+    # 5.6 兜底：任何空白字段调用 AI 补充（不阻塞主流程，失败也继续）
+    try:
+        from app.services.entity_enrichment import entity_enrichment as _enrich
+        await _enrich["enrich_project_entities"](db, project_id)
+        # 刷新 script.logline / art_style 等可能由 enrich 影响的字段
+        await db.refresh(script)
+        await db.refresh(project)
+    except Exception as _e:
+        # enrich 失败不影响主流程，项目依然可用
+        import logging
+        logging.warning(f"entity_enrichment 兜底失败（不影响主流程）：{_e}")
 
     # 6) 自动构建画布节点（角色/场景/分镜三行）
     from app.services.creation import creation_service
@@ -239,38 +355,51 @@ async def create_project_with_script(
         select(ShotModel).where(ShotModel.project_id == project_id).order_by(ShotModel.shot_no)
     )).scalars().all()
 
-    char_ids = list(char_map.values())
-    scene_ids = list(scene_map.values())
+    # 补充取一遍实体（用于画布节点 title）
+    from app.models.character import Character as _Char
+    from app.models.scene import Scene as _Scene
+    char_objs = {
+        c.id: c for c in (await db.execute(
+            select(_Char).where(_Char.project_id == project_id)
+        )).scalars().all()
+    }
+    scene_objs = {
+        s.id: s for s in (await db.execute(
+            select(_Scene).where(_Scene.project_id == project_id)
+        )).scalars().all()
+    }
 
     created_nodes: list[CanvasNode] = []
 
-    # 角色行
-    for i, cid in enumerate(char_ids):
+    # 角色行（title 取角色名）
+    for i, cid in enumerate(char_map.values()):
+        ch_obj = char_objs.get(cid)
         node = CanvasNode(
             project_id=project_id,
             node_type="character",
             ref_id=cid,
-            title="",
+            title=(ch_obj.name if ch_obj else "") or "",
             position_x=i * 240,
             position_y=0,
         )
         db.add(node)
         created_nodes.append(node)
 
-    # 场景行
-    for i, sid in enumerate(scene_ids):
+    # 场景行（title 取场景名）
+    for i, sid in enumerate(scene_map.values()):
+        sc_obj = scene_objs.get(sid)
         node = CanvasNode(
             project_id=project_id,
             node_type="scene",
             ref_id=sid,
-            title="",
+            title=(sc_obj.name if sc_obj else "") or "",
             position_x=i * 240,
             position_y=240,
         )
         db.add(node)
         created_nodes.append(node)
 
-    # 分镜行
+    # 分镜行（title 用 shot_code + 描述前几个字）
     for i, sh in enumerate(shot_list):
         node = CanvasNode(
             project_id=project_id,
@@ -284,34 +413,38 @@ async def create_project_with_script(
         created_nodes.append(node)
     await db.flush()
 
-    # 7) 自动建引用连线：分镜 → 角色 / 场景
-    char_nodes = [n for n in created_nodes if n.node_type == "character"]
-    scene_nodes = [n for n in created_nodes if n.node_type == "scene"]
-    shot_nodes = [n for n in created_nodes if n.node_type == "shot"]
+    # 7) 自动建引用连线：分镜 → 角色 / 场景（用 shot.scene_id 和 shot.character_ids）
+    char_nodes_by_id = {n.ref_id: n for n in created_nodes if n.node_type == "character"}
+    scene_nodes_by_id = {n.ref_id: n for n in created_nodes if n.node_type == "scene"}
+    shot_nodes_by_id = {n.ref_id: n for n in created_nodes if n.node_type == "shot"}
 
-    # 关系边：按出现顺序轮询分配场景
-    for i, sn in enumerate(shot_nodes):
-        shot = next((s for s in shot_list if s.id == sn.ref_id), None)
-        if not shot:
+    for shot in shot_list:
+        sn = shot_nodes_by_id.get(shot.id)
+        if not sn:
             continue
-        # 场景连线：优先按 shot_no % len(scene_nodes) 轮询
-        if scene_nodes:
-            target_scene = scene_nodes[i % len(scene_nodes)]
+        # 场景连线：优先按真实 scene_id，其次兜底（首个场景）
+        target_scene_node = None
+        if shot.scene_id and shot.scene_id in scene_nodes_by_id:
+            target_scene_node = scene_nodes_by_id[shot.scene_id]
+        elif scene_nodes_by_id:
+            target_scene_node = list(scene_nodes_by_id.values())[0]
+        if target_scene_node:
             db.add(CanvasEdge(
                 project_id=project_id,
-                source_id=target_scene.id,
+                source_id=target_scene_node.id,
                 target_id=sn.id,
                 edge_type="reference",
             ))
-        # 角色连线：按出现顺序轮询
-        if char_nodes:
-            target_char = char_nodes[i % len(char_nodes)]
-            db.add(CanvasEdge(
-                project_id=project_id,
-                source_id=target_char.id,
-                target_id=sn.id,
-                edge_type="reference",
-            ))
+        # 角色连线：按 shot.character_ids
+        for cid in (shot.character_ids or []):
+            cn = char_nodes_by_id.get(cid)
+            if cn:
+                db.add(CanvasEdge(
+                    project_id=project_id,
+                    source_id=cn.id,
+                    target_id=sn.id,
+                    edge_type="reference",
+                ))
 
     project.status = "draft"
     task.status = "success"
@@ -828,14 +961,26 @@ async def batch_generate_shot_videos(
     use_model = video_model or settings.VIDEO_MODEL
 
     task_ids = []
+    from app.services.video_prompt_builder import build_shot_video_prompt
     for sh in shots:
-        v_prompt = sh.visual_prompt or sh.description
+        # 用统一构建器把分镜 + 场景 + 角色 + 项目风格拼成多段式 prompt
+        rich_prompt, shot_meta = await build_shot_video_prompt(
+            db, project_id, sh.id, fallback_title=sh.shot_code or ""
+        )
+        # 如果 shot 自己有 visual_prompt 且更具体，附加为「导演意图」
+        if sh.visual_prompt and sh.visual_prompt.strip() and sh.visual_prompt not in rich_prompt:
+            rich_prompt = rich_prompt + f" 导演意图：{sh.visual_prompt.strip()}。"
         task = GenerationTask(
             project_id=project_id,
             task_type="shot_video",
             shot_id=sh.id,
-            prompt=v_prompt,
-            params={"model": use_model, "image_url": sh.image_url, "duration": int(sh.duration_sec)},
+            prompt=rich_prompt,
+            params={
+                "model": use_model,
+                "image_url": sh.image_url,
+                "duration": int(sh.duration_sec),
+                **shot_meta,
+            },
             status="pending",
             progress=0,
             phase="批量视频生成",
@@ -957,17 +1102,54 @@ async def apply_script_to_canvas(
         db.add(prop)
 
     shot_list = []
+    # 反向映射：角色 name/alias → id（用于 character_names 关联）
+    char_by_name_for_shot: Dict[str, int] = {}
+    for c in data.get("characters", []):
+        cid = char_map.get(c.get("name", ""))
+        if cid:
+            char_by_name_for_shot[c.get("name", "")] = cid
+            if c.get("alias"):
+                char_by_name_for_shot[c.get("alias", "")] = cid
+
     for idx, sh in enumerate(data.get("shots", []), 1):
+        # 场景关联：优先 scene_name，其次描述里匹配场景名/位置，最后兜底轮询
+        scene_id = scene_map.get(sh.get("scene_name", "")) if sh.get("scene_name") else None
+        if not scene_id:
+            desc = sh.get("description", "") or ""
+            for name, sid in scene_map.items():
+                if name and name in desc:
+                    scene_id = sid
+                    break
+        if not scene_id and scene_map:
+            scene_id = list(scene_map.values())[(idx - 1) % len(scene_map)]
+
+        # 角色关联：优先 character_names，其次描述/台词里匹配
+        char_ids = [
+            char_by_name_for_shot[n]
+            for n in (sh.get("character_names") or [])
+            if n in char_by_name_for_shot
+        ]
+        if not char_ids:
+            text = (sh.get("description", "") or "") + (sh.get("dialogue", "") or "")
+            char_ids = [cid for name, cid in char_by_name_for_shot.items() if name and name in text]
+        if not char_ids and char_by_name_for_shot:
+            char_ids = [list(char_by_name_for_shot.values())[(idx - 1) % len(char_by_name_for_shot)]]
+
         shot = Shot(
             project_id=project_id,
             shot_no=idx,
             shot_code=sh.get("shot_code", f"SC{idx:02d}"),
             description=sh.get("description", ""),
-            camera_movement=sh.get("camera", ""),
+            composition=sh.get("composition", ""),
+            camera_movement=sh.get("camera_movement", "") or sh.get("camera", ""),
+            camera_angle=sh.get("camera_angle", ""),
             dialogue=sh.get("dialogue", ""),
             narration=sh.get("narration", ""),
             duration_sec=sh.get("duration_sec", 5),
-            visual_prompt=sh.get("description", ""),
+            visual_prompt=sh.get("visual_prompt", "") or sh.get("description", ""),
+            negative_prompt=sh.get("negative_prompt", ""),
+            scene_id=scene_id,
+            character_ids=char_ids,
         )
         db.add(shot)
         shot_list.append(shot)
